@@ -1,0 +1,50 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python (in case examples use Python)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node (in case examples use Node)
+node_modules/
+npm-debug.log*
+
+# Build artifacts
+dist/
+build/
+*.egg
+
+# Environment
+.env
+.venv/
+venv/
+ENV/
+
+# Logs
+*.log
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Temp files
+*.tmp
+*.bak
+*.orig

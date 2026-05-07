@@ -1,0 +1,32 @@
+{
+  "_schema_version": "1.0",
+  "identity": {
+    "decision_id": "550e8400-e29b-41d4-a716-446655440000",
+    "timestamp_utc": "2026-05-06T10:30:00.000000+00:00",
+    "model_version": "v1.0.0",
+    "policy_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "action": {
+    "action_type": "APPROVE",
+    "expected_value": 0.15
+  },
+  "cognition": {
+    "confidence": 0.85,
+    "rationale": "Application meets all credit criteria. Income verification complete. Credit score above threshold."
+  },
+  "governance": {
+    "audit_trail": [
+      {
+        "timestamp_utc": "2026-05-06T10:30:00.000000+00:00",
+        "event": "DECISION_CREATED",
+        "actor": "CREDIT_DECISION_ENGINE",
+        "metadata": {}
+      }
+    ],
+    "compliance": {
+      "risk_limit_checks": ["PASSED"],
+      "policy_violations": [],
+      "approvals": []
+    }
+  }
+}
