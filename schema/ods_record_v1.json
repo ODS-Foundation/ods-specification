@@ -1,0 +1,240 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/ODS-Foundation/ods-specification/schema/ods_record_v1.json",
+  "title": "ODS v1.0 Record Schema",
+  "description": "JSON Schema for validating ODS v1.0 compliant records (DECISION and OUTCOME types).",
+  "type": "object",
+  "required": ["_schema_version", "record_type", "record_id", "timestamp_utc"],
+  "properties": {
+    "_schema_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "ODS schema version"
+    },
+    "record_type": {
+      "type": "string",
+      "enum": ["DECISION", "OUTCOME"],
+      "description": "Discriminator determining which fields are required and valid"
+    },
+    "record_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Globally unique UUID v4 identifier for this record"
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 datetime in UTC with microsecond precision"
+    },
+    "parent_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID of the parent record. Required for OUTCOME. Must reference an existing record_id in the store at write time."
+    }
+  },
+  "if": {
+    "properties": { "record_type": { "const": "DECISION" } }
+  },
+  "then": {
+    "required": ["identity", "action", "cognition", "governance"],
+    "not": {
+      "required": ["outcomes"]
+    },
+    "properties": {
+      "identity": {
+        "type": "object",
+        "required": ["model_version", "policy_hash"],
+        "properties": {
+          "model_version": {
+            "type": "string",
+            "pattern": "^v?\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?$",
+            "description": "Semantic version of the decision model or process"
+          },
+          "policy_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "SHA-256 hash of the policy document. Canonical input: UTF-8 JSON, keys sorted lexicographically, no whitespace."
+          }
+        },
+        "additionalProperties": false
+      },
+      "context": {
+        "type": "object",
+        "properties": {
+          "regime_state": {
+            "type": "string",
+            "enum": ["NORMAL", "TRANSITION", "CRISIS", "RECOVERY"]
+          },
+          "regime_confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "volatility_state": {
+            "type": "string",
+            "enum": ["LOW", "NORMAL", "ELEVATED", "EXTREME"]
+          },
+          "macro_state_vector": {
+            "type": "array",
+            "items": { "type": "number" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "action": {
+        "type": "object",
+        "required": ["action_type"],
+        "properties": {
+          "action_type": {
+            "type": "string",
+            "description": "Domain-specific action category. ODS does not constrain this vocabulary."
+          },
+          "action_size": {
+            "type": "number",
+            "description": "Magnitude of action in domain-specific units"
+          },
+          "risk_posture": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "expected_value": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "cognition": {
+        "type": "object",
+        "required": ["confidence", "rationale"],
+        "properties": {
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "uncertainty_score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "decision_latency_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rationale": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 2000
+          }
+        },
+        "additionalProperties": false
+      },
+      "counterfactuals": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["alternative_action", "expected_outcome"],
+          "properties": {
+            "alternative_action": { "type": "string" },
+            "expected_outcome": { "type": "number" },
+            "regret": { "type": "number" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "governance": {
+        "type": "object",
+        "required": ["audit_trail"],
+        "properties": {
+          "audit_trail": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["timestamp_utc", "event", "actor"],
+              "properties": {
+                "timestamp_utc": { "type": "string", "format": "date-time" },
+                "event": {
+                  "type": "string",
+                  "enum": ["DECISION_CREATED", "VERIFIED", "AUDITED"]
+                },
+                "actor": { "type": "string" },
+                "metadata": { "type": "object" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "explainability": { "type": "object" },
+          "compliance": {
+            "type": "object",
+            "properties": {
+              "risk_limit_checks": { "type": "array", "items": { "type": "string" } },
+              "policy_violations": { "type": "array", "items": { "type": "string" } },
+              "approvals": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "else": {
+    "required": ["parent_id", "outcome_status", "outcomes", "governance"],
+    "properties": {
+      "outcome_status": {
+        "type": "string",
+        "enum": ["PARTIAL", "FINAL"],
+        "description": "PARTIAL: intermediate measurement. FINAL: closes the outcome cycle. Only one FINAL permitted per parent_id chain; enforced at write time by the store."
+      },
+      "outcomes": {
+        "type": "object",
+        "required": ["actual_result", "realized_at", "delta_from_expected"],
+        "properties": {
+          "actual_result": { "type": "number" },
+          "realized_at": { "type": "string", "format": "date-time" },
+          "delta_from_expected": { "type": "number" },
+          "outcome_quality": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "governance": {
+        "type": "object",
+        "required": ["audit_trail"],
+        "properties": {
+          "audit_trail": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["timestamp_utc", "event", "actor"],
+              "properties": {
+                "timestamp_utc": { "type": "string", "format": "date-time" },
+                "event": {
+                  "type": "string",
+                  "enum": ["OUTCOME_LOGGED", "VERIFIED", "AUDITED"]
+                },
+                "actor": { "type": "string" },
+                "metadata": { "type": "object" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "compliance": {
+            "type": "object",
+            "properties": {
+              "risk_limit_checks": { "type": "array", "items": { "type": "string" } },
+              "policy_violations": { "type": "array", "items": { "type": "string" } },
+              "approvals": { "type": "array", "items": { "type": "string" } }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

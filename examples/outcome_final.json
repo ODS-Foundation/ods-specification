@@ -1,0 +1,33 @@
+{
+  "_schema_version": "1.0",
+  "record_type": "OUTCOME",
+  "record_id": "c3d4e5f6-5678-4bcd-9abc-333344445555",
+  "timestamp_utc": "2026-05-15T09:00:00.000000+00:00",
+  "parent_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "outcome_status": "FINAL",
+  "outcomes": {
+    "actual_result": 0.11,
+    "realized_at": "2026-05-15T09:00:00.000000+00:00",
+    "delta_from_expected": 0.03,
+    "outcome_quality": 0.85
+  },
+  "governance": {
+    "audit_trail": [
+      {
+        "timestamp_utc": "2026-05-15T09:00:00.000000+00:00",
+        "event": "OUTCOME_LOGGED",
+        "actor": "OUTCOME_TRACKER",
+        "metadata": {
+          "source": "market_data_api",
+          "measurement_window": "30d",
+          "verification": "passed"
+        }
+      }
+    ],
+    "compliance": {
+      "risk_limit_checks": ["OUTCOME_WITHIN_BOUNDS"],
+      "policy_violations": [],
+      "approvals": []
+    }
+  }
+}

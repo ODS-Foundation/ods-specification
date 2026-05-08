@@ -1,60 +1,43 @@
 # ODS v1.0 Implementation Guide
 
-**Version:** 1.0  
-**Audience:** Developers, System Architects, CIOs  
-**Prerequisites:** Familiarity with [SPECIFICATION.md](./SPECIFICATION.md)  
-**Estimated Implementation Time:** 4-12 weeks (depending on compliance level)
+**Version:** 1.0
+**Audience:** Developers, System Architects
+**Prerequisites:** Familiarity with [SPECIFICATION.md](./SPECIFICATION.md)
+**Estimated Implementation Time:** 4-12 weeks (depending on conformance level)
 
 ---
 
 ## Table of Contents
 
 1. [Getting Started](#1-getting-started)
-2. [Architecture Patterns](#2-architecture-patterns)
-3. [Implementation Roadmap](#3-implementation-roadmap)
-4. [Level 1 Implementation](#4-level-1-implementation)
-5. [Level 2 Implementation](#5-level-2-implementation)
-6. [Level 3 Implementation](#6-level-3-implementation)
+2. [Record Model](#2-record-model)
+3. [Architecture Patterns](#3-architecture-patterns)
+4. [Basic Conformance](#4-basic-conformance)
+5. [Standard Conformance](#5-standard-conformance)
+6. [Full Conformance](#6-full-conformance)
 7. [Storage Implementation](#7-storage-implementation)
 8. [API Design](#8-api-design)
 9. [Security Considerations](#9-security-considerations)
 10. [Testing and Validation](#10-testing-and-validation)
 11. [Deployment Patterns](#11-deployment-patterns)
-12. [Reference Implementation](#12-reference-implementation)
 
 ---
 
 ## 1. Getting Started
 
-### 1.1 Determine Your Compliance Level
+### 1.1 Determine Your Conformance Level
 
-Before implementing ODS, determine which compliance level your organization requires:
-
-**Choose Level 1 if:**
-- Internal governance only
-- No regulatory requirements
-- Basic accountability needed
-- Limited audit scope
-
-**Choose Level 2 if:**
-- Regulated industry (finance, healthcare, energy)
-- External audit requirements
-- Multi-year retention needed
-- Third-party oversight
-
-**Choose Level 3 if:**
-- Mission-critical decision systems
-- Continuous improvement required
-- Institutional intelligence goal
-- Competitive advantage through decision quality
+| Level | When to choose |
+|-------|----------------|
+| **Basic** | Internal governance, no regulatory requirements, basic accountability |
+| **Standard** | Regulated industry (finance, healthcare, energy), external audit, multi-year retention |
+| **Full** | Mission-critical systems, continuous improvement, institutional intelligence |
 
 ### 1.2 Assessment Checklist
 
-Before starting implementation:
-
-```markdown
+```
 □ Executive sponsorship secured
-□ Compliance level determined
+□ Conformance level determined
 □ Budget allocated
 □ Technical team assigned
 □ Existing decision workflows mapped
@@ -63,945 +46,732 @@ Before starting implementation:
 □ Security requirements documented
 ```
 
-### 1.3 Quick Start
+---
 
-The fastest path to ODS compliance:
+## 2. Record Model
 
-1. **Week 1:** Install reference implementation
-2. **Week 2:** Configure for your environment
-3. **Week 3:** Integrate with decision workflows
-4. **Week 4:** Test and validate
+### 2.1 Core Principle: Append-Only Event Log
+
+ODS stores are append-only logs. No record is ever modified after it is written. This is the same model used by Kafka, EventStore, and Datomic. New information — an outcome, a correction — is expressed by appending a new record that references the original via `parent_id`.
+
+Every record shares the same identity envelope:
+
+```python
+{
+    "_schema_version": "1.0",
+    "record_type": "DECISION",  # or "OUTCOME"
+    "record_id": str(uuid4()),
+    "timestamp_utc": datetime.utcnow().isoformat() + "+00:00",
+    # parent_id: absent for DECISION, required for OUTCOME
+}
+```
+
+### 2.2 DECISION Records
+
+A DECISION record is written once and never modified. It captures the full context of the decision at the moment it was made.
+
+```python
+import json
+import uuid
+import hashlib
+from datetime import datetime, timezone
+from pathlib import Path
+
+import jcs  # RFC 8785 JSON Canonicalization Scheme — pip install jcs
+
+
+class ODSStore:
+    """Minimal ODS-compliant append-only record store."""
+
+    def __init__(self, store_path: str):
+        self.path = Path(store_path)
+        self.path.mkdir(parents=True, exist_ok=True)
+        self.index_file = self.path / "index.jsonl"
+
+    def _record_path(self, record_id: str) -> Path:
+        return self.path / f"{record_id}.json"
+
+    def _record_exists(self, record_id: str) -> bool:
+        return self._record_path(record_id).exists()
+
+    def _write_record(self, record: dict) -> str:
+        record_id = record["record_id"]
+        record_path = self._record_path(record_id)
+
+        record_hash = hashlib.sha256(jcs.canonicalize(record)).hexdigest()
+
+        with open(record_path, "w") as f:
+            f.write(json.dumps(record, indent=2))
+
+        with open(self.index_file, "a") as f:
+            f.write(json.dumps({
+                "record_id": record_id,
+                "record_type": record["record_type"],
+                "timestamp_utc": record["timestamp_utc"],
+                "parent_id": record.get("parent_id"),
+                "hash": record_hash,
+            }) + "\n")
+
+        return record_id
+
+    def write_decision(self, action: dict, cognition: dict, model_version: str,
+                       policy: dict, context: dict = None,
+                       counterfactuals: list = None, actor: str = "SYSTEM",
+                       compliance: dict = None) -> str:
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        policy_hash = hashlib.sha256(jcs.canonicalize(policy)).hexdigest()
+
+        record = {
+            "_schema_version": "1.0",
+            "record_type": "DECISION",
+            "record_id": str(uuid.uuid4()),
+            "timestamp_utc": timestamp,
+            "identity": {
+                "model_version": model_version,
+                "policy_hash": policy_hash,
+            },
+            "action": action,
+            "cognition": cognition,
+            "governance": {
+                "audit_trail": [{
+                    "timestamp_utc": timestamp,
+                    "event": "DECISION_CREATED",
+                    "actor": actor,
+                    "metadata": {},
+                }],
+            },
+        }
+
+        if context:
+            record["context"] = context
+        if counterfactuals:
+            record["counterfactuals"] = counterfactuals
+        if compliance:
+            record["governance"]["compliance"] = compliance
+
+        return self._write_record(record)
+
+    def write_outcome(self, parent_id: str, actual_result: float,
+                      realized_at: str, outcome_status: str,
+                      actor: str = "OUTCOME_TRACKER",
+                      outcome_quality: float = None) -> str:
+        """
+        Write an OUTCOME record. parent_id must exist in the store.
+        outcome_status must be PARTIAL or FINAL.
+        Only one FINAL is permitted per parent_id.
+        """
+        if not self._record_exists(parent_id):
+            raise ValueError(
+                f"parent_id '{parent_id}' does not exist in the store. "
+                "Write rejected."
+            )
+
+        if outcome_status == "FINAL":
+            existing_finals = self._find_finals(parent_id)
+            if existing_finals:
+                raise ValueError(
+                    f"A FINAL OUTCOME already exists for parent_id '{parent_id}' "
+                    f"(record_id: {existing_finals[0]}). "
+                    "Only one FINAL is permitted per decision chain. Write rejected."
+                )
+
+        if outcome_status not in ("PARTIAL", "FINAL"):
+            raise ValueError(f"outcome_status must be PARTIAL or FINAL, got: {outcome_status}")
+
+        parent = self.get_record(parent_id)
+        expected_value = parent.get("action", {}).get("expected_value")
+        delta = (actual_result - expected_value) if expected_value is not None else None
+
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        outcomes = {
+            "actual_result": actual_result,
+            "realized_at": realized_at,
+            "delta_from_expected": delta,
+        }
+        if outcome_quality is not None:
+            outcomes["outcome_quality"] = outcome_quality
+
+        record = {
+            "_schema_version": "1.0",
+            "record_type": "OUTCOME",
+            "record_id": str(uuid.uuid4()),
+            "timestamp_utc": timestamp,
+            "parent_id": parent_id,
+            "outcome_status": outcome_status,
+            "outcomes": outcomes,
+            "governance": {
+                "audit_trail": [{
+                    "timestamp_utc": timestamp,
+                    "event": "OUTCOME_LOGGED",
+                    "actor": actor,
+                    "metadata": {"outcome_status": outcome_status},
+                }],
+            },
+        }
+
+        return self._write_record(record)
+
+    def get_record(self, record_id: str) -> dict:
+        path = self._record_path(record_id)
+        if not path.exists():
+            raise KeyError(f"Record not found: {record_id}")
+        with open(path) as f:
+            return json.load(f)
+
+    def canonical_state(self, decision_record_id: str) -> dict:
+        """
+        Compute the canonical state of a decision per SPECIFICATION.md Section 3.5.
+
+        Returns:
+            {
+                "decision": <DECISION record>,
+                "outcomes_partial": [<OUTCOME records>, ...],  # ordered by timestamp
+                "outcome_final": <OUTCOME record> | None,
+            }
+        """
+        decision = self.get_record(decision_record_id)
+        if decision.get("record_type") != "DECISION":
+            raise ValueError(f"record_id '{decision_record_id}' is not a DECISION record")
+
+        children = self._find_children(decision_record_id)
+        outcome_records = [r for r in children if r.get("record_type") == "OUTCOME"]
+        outcome_records.sort(key=lambda r: r["timestamp_utc"])
+
+        partials = [r for r in outcome_records if r.get("outcome_status") == "PARTIAL"]
+        finals = [r for r in outcome_records if r.get("outcome_status") == "FINAL"]
+
+        return {
+            "decision": decision,
+            "outcomes_partial": partials,
+            "outcome_final": finals[0] if finals else None,
+        }
+
+    def _find_children(self, parent_id: str) -> list[dict]:
+        children = []
+        if not self.index_file.exists():
+            return children
+        with open(self.index_file) as f:
+            for line in f:
+                entry = json.loads(line.strip())
+                if entry.get("parent_id") == parent_id:
+                    try:
+                        children.append(self.get_record(entry["record_id"]))
+                    except KeyError:
+                        pass
+        return children
+
+    def _find_finals(self, parent_id: str) -> list[str]:
+        finals = []
+        if not self.index_file.exists():
+            return finals
+        with open(self.index_file) as f:
+            for line in f:
+                entry = json.loads(line.strip())
+                if entry.get("parent_id") == parent_id:
+                    record = self.get_record(entry["record_id"])
+                    if record.get("outcome_status") == "FINAL":
+                        finals.append(entry["record_id"])
+        return finals
+
+    def verify_integrity(self) -> tuple[bool, str]:
+        """Verify SHA-256 hash of every record against the index."""
+        if not self.index_file.exists():
+            return True, "Store is empty"
+        with open(self.index_file) as f:
+            for line in f:
+                entry = json.loads(line.strip())
+                record = self.get_record(entry["record_id"])
+                current_hash = hashlib.sha256(jcs.canonicalize(record)).hexdigest()
+                if current_hash != entry["hash"]:
+                    return False, f"Integrity failure: {entry['record_id']}"
+        return True, "All records verified"
+```
+
+### 2.3 Usage Example
+
+```python
+store = ODSStore("./decision_vault")
+
+# Write a DECISION record
+decision_id = store.write_decision(
+    model_version="v2.1.0",
+    policy={"name": "credit_policy", "version": "3"},
+    actor="CREDIT_ENGINE",
+    action={"action_type": "APPROVE", "expected_value": 0.15},
+    cognition={"confidence": 0.85, "rationale": "All criteria met within risk tolerance"},
+    compliance={"risk_limit_checks": ["PASSED"], "policy_violations": [], "approvals": []},
+)
+print(f"Decision logged: {decision_id}")
+
+# Later: write a PARTIAL outcome (interim measurement)
+outcome_id = store.write_outcome(
+    parent_id=decision_id,
+    actual_result=0.07,
+    realized_at="2026-05-14T09:00:00+00:00",
+    outcome_status="PARTIAL",
+    outcome_quality=0.6,
+)
+
+# Later: write the FINAL outcome
+final_id = store.write_outcome(
+    parent_id=decision_id,
+    actual_result=0.14,
+    realized_at="2026-06-01T09:00:00+00:00",
+    outcome_status="FINAL",
+    outcome_quality=0.88,
+)
+
+# Canonical state per Section 3.5
+state = store.canonical_state(decision_id)
+print("Decision:", state["decision"]["record_id"])
+print("Partials:", len(state["outcomes_partial"]))
+print("Final:", state["outcome_final"]["outcomes"]["actual_result"])
+
+# Integrity check
+ok, msg = store.verify_integrity()
+print(f"Integrity: {msg}")
+```
 
 ---
 
-## 2. Architecture Patterns
+## 3. Architecture Patterns
 
-### 2.1 Centralized Decision Vault
+### 3.1 Centralized Store
 
-**Pattern:** Single central repository for all organizational decisions.
-
-**Pros:**
-- Simple governance
-- Easy auditing
-- Consistent schema
-- Lower cost
-
-**Cons:**
-- Single point of failure
-- Scaling challenges at very high volume
-- Cross-region latency
-
-**Best for:** Level 1-2, organizations < 10,000 decisions/day
+Single append-only store for all records. Suitable for Basic and Standard conformance, organizations under 10,000 decisions/day.
 
 ```
 ┌─────────────────────────────────────────┐
-│         Decision Vault                   │
+│         ODS Store                        │
 │  ┌─────────────────────────────────┐    │
-│  │   Append-Only Storage           │    │
-│  │   - Decisions                   │    │
-│  │   - Snapshots                   │    │
-│  │   - Outcomes                    │    │
+│  │   Append-Only Records            │    │
+│  │   - DECISION records            │    │
+│  │   - OUTCOME records             │    │
 │  └─────────────────────────────────┘    │
 │  ┌─────────────────────────────────┐    │
-│  │   Verification Layer            │    │
-│  │   - Cryptographic hashing       │    │
-│  │   - Integrity checks            │    │
+│  │   Index + Verification          │    │
+│  │   - SHA-256 per record          │    │
+│  │   - parent_id index             │    │
 │  └─────────────────────────────────┘    │
 └─────────────────────────────────────────┘
-           ▲            ▲            ▲
-           │            │            │
-     ┌─────┴───┐  ┌────┴────┐  ┌───┴─────┐
-     │Trading  │  │ Risk    │  │Strategy │
-     │System   │  │ Mgmt    │  │ Team    │
-     └─────────┘  └─────────┘  └─────────┘
 ```
 
-### 2.2 Distributed Decision Fabric
+### 3.2 Distributed Store
 
-**Pattern:** Multiple vaults synchronized via consensus protocol.
-
-**Pros:**
-- High availability
-- Geographic distribution
-- Horizontal scaling
-- Fault tolerance
-
-**Cons:**
-- Complex governance
-- Higher cost
-- Consistency challenges
-- Operational overhead
-
-**Best for:** Level 3, global organizations, > 50,000 decisions/day
-
-### 2.3 Hybrid (Recommended for Most)
-
-**Pattern:** Central vault with regional caching layers.
-
-**Pros:**
-- Balance of simplicity and performance
-- Cost-effective
-- Good for multi-region deployments
-- Easier compliance
-
-**Best for:** Level 2-3, most enterprise deployments
+Multiple stores synchronized. Suitable for Full conformance, global deployments, >50,000 decisions/day. Higher operational complexity; consistency guarantees must be specified per deployment.
 
 ---
 
-## 3. Implementation Roadmap
+## 4. Basic Conformance
 
-### 3.1 Phase-Based Approach
+**Requirements:** DECISION records with identity, action, cognition; append-only; audit trail; 1-year retention.
 
-**Phase 1: Foundation (Weeks 1-2)**
-- Set up append-only storage
-- Implement core schema
-- Basic logging functionality
-- Unit tests
+### 4.1 Storage Setup
 
-**Phase 2: Integration (Weeks 3-4)**
-- Connect to decision systems
-- API development
-- Authentication/authorization
-- Integration tests
-
-**Phase 3: Governance (Weeks 5-6)**
-- Audit trail implementation
-- Verification mechanisms
-- Compliance reporting
-- Security hardening
-
-**Phase 4: Meta-Learning (Weeks 7-12)** *(Level 3 only)*
-- Outcome tracking automation
-- Counterfactual generation
-- Decision quality metrics
-- Learning velocity dashboard
-
-### 3.2 Team Structure
-
-**Minimum team:**
-- 1 Backend engineer (storage, API)
-- 1 Integration engineer (connect to decision systems)
-- 1 Security engineer (compliance, crypto)
-- 0.5 Product manager (requirements, testing)
-
-**Ideal team:**
-- 2 Backend engineers
-- 1 Frontend engineer (dashboard)
-- 1 Integration engineer
-- 1 Security engineer
-- 1 Data engineer (analytics)
-- 1 Product manager
-
----
-
-## 4. Level 1 Implementation
-
-### 4.1 Core Requirements
-
-✅ Decision logging with identity layer  
-✅ Immutability (append-only)  
-✅ Basic audit trail  
-✅ Minimum 1-year retention
-
-### 4.2 Minimal Implementation (Python)
-
-```python
-# minimal_ods_vault.py
-
-import json
-import uuid
-from datetime import datetime
-from pathlib import Path
-import hashlib
-
-class DecisionVault:
-    """
-    Minimal ODS Level 1 compliant decision vault.
-    """
-    
-    def __init__(self, vault_path="./decision_vault"):
-        self.vault_path = Path(vault_path)
-        self.vault_path.mkdir(exist_ok=True)
-        self.decisions_path = self.vault_path / "decisions"
-        self.decisions_path.mkdir(exist_ok=True)
-        self.index_file = self.vault_path / "index.jsonl"
-    
-    def log_decision(self, decision_data):
-        """
-        Log a decision to the vault.
-        
-        Args:
-            decision_data: Dict containing decision information
-            
-        Returns:
-            decision_id: UUID of logged decision
-        """
-        # Generate decision ID
-        decision_id = str(uuid.uuid4())
-        timestamp = datetime.utcnow().isoformat() + "Z"
-        
-        # Build ODS-compliant decision object
-        decision = {
-            "_schema_version": "1.0",
-            "identity": {
-                "decision_id": decision_id,
-                "timestamp_utc": timestamp,
-                "model_version": decision_data.get("model_version", "v1.0.0"),
-                "policy_hash": self._calculate_policy_hash(decision_data)
-            },
-            "action": decision_data.get("action", {}),
-            "cognition": decision_data.get("cognition", {}),
-            "governance": {
-                "audit_trail": [
-                    {
-                        "timestamp_utc": timestamp,
-                        "event": "DECISION_CREATED",
-                        "actor": decision_data.get("actor", "SYSTEM"),
-                        "metadata": {}
-                    }
-                ]
-            }
-        }
-        
-        # Add optional layers if present
-        if "context" in decision_data:
-            decision["context"] = decision_data["context"]
-        
-        # Calculate decision hash
-        decision_hash = self._calculate_decision_hash(decision)
-        
-        # Write to append-only storage
-        decision_file = self.decisions_path / f"{decision_id}.json"
-        with open(decision_file, 'w') as f:
-            json.dump(decision, f, indent=2)
-        
-        # Append to index
-        index_entry = {
-            "decision_id": decision_id,
-            "timestamp_utc": timestamp,
-            "hash": decision_hash,
-            "file_path": f"decisions/{decision_id}.json"
-        }
-        
-        with open(self.index_file, 'a') as f:
-            f.write(json.dumps(index_entry) + '\n')
-        
-        return decision_id
-    
-    def get_decision(self, decision_id):
-        """Retrieve a decision by ID."""
-        decision_file = self.decisions_path / f"{decision_id}.json"
-        
-        if not decision_file.exists():
-            raise ValueError(f"Decision {decision_id} not found")
-        
-        with open(decision_file, 'r') as f:
-            return json.load(f)
-    
-    def _calculate_policy_hash(self, decision_data):
-        """Calculate hash of decision policy."""
-        policy = decision_data.get("policy", {})
-        policy_str = json.dumps(policy, sort_keys=True)
-        return hashlib.sha256(policy_str.encode()).hexdigest()
-    
-    def _calculate_decision_hash(self, decision):
-        """Calculate SHA-256 hash of decision."""
-        normalized = json.dumps(decision, sort_keys=True, separators=(',', ':'))
-        return hashlib.sha256(normalized.encode()).hexdigest()
-    
-    def verify_integrity(self):
-        """Verify integrity of all decisions."""
-        with open(self.index_file, 'r') as f:
-            for line in f:
-                entry = json.loads(line)
-                decision = self.get_decision(entry['decision_id'])
-                current_hash = self._calculate_decision_hash(decision)
-                
-                if current_hash != entry['hash']:
-                    return False, f"Tampered: {entry['decision_id']}"
-        
-        return True, "All decisions verified"
-
-# Usage Example
-vault = DecisionVault()
-
-decision_id = vault.log_decision({
-    "model_version": "v1.0.0",
-    "actor": "TRADING_SYSTEM",
-    "action": {
-        "action_type": "BUY",
-        "action_size": 0.25,
-        "expected_value": 0.12
-    },
-    "cognition": {
-        "confidence": 0.75,
-        "rationale": "Strong momentum signal detected"
-    }
-})
-
-print(f"Decision logged: {decision_id}")
-
-# Verify integrity
-is_valid, message = vault.verify_integrity()
-print(f"Integrity check: {message}")
-```
-
-### 4.3 Storage Setup
-
-**Option 1: Local filesystem (Development)**
+**Local filesystem (development):**
 ```bash
-mkdir -p /var/lib/decision_vault/decisions
-chmod 600 /var/lib/decision_vault
+mkdir -p /var/lib/decision_vault
+chmod 700 /var/lib/decision_vault
 ```
 
-**Option 2: AWS S3 (Production)**
+**AWS S3 with Object Lock (production):**
 ```python
 import boto3
 
 s3 = boto3.client('s3')
-
-# Enable versioning (immutability)
 s3.put_bucket_versioning(
     Bucket='org-decision-vault',
     VersioningConfiguration={'Status': 'Enabled'}
 )
-
-# Enable Object Lock (WORM)
 s3.put_object_lock_configuration(
     Bucket='org-decision-vault',
     ObjectLockConfiguration={
         'ObjectLockEnabled': 'Enabled',
         'Rule': {
-            'DefaultRetention': {
-                'Mode': 'GOVERNANCE',
-                'Years': 7
-            }
+            'DefaultRetention': {'Mode': 'GOVERNANCE', 'Years': 7}
         }
     }
 )
 ```
 
-### 4.4 Level 1 Checklist
+### 4.2 Basic Checklist
 
-```markdown
+```
 □ Append-only storage configured
-□ Decision schema implemented (identity + action + cognition)
-□ log_decision() function working
-□ get_decision() function working
-□ Basic audit trail logging
-□ File-based or S3 storage selected
+□ DECISION records include identity, action, cognition layers
+□ write_decision() enforces no outcomes field
+□ Audit trail records DECISION_CREATED event
 □ 1-year retention policy documented
-□ Integrity verification tested
-□ Basic unit tests passing
+□ verify_integrity() tested
+□ Schema validation passing for all written records
 ```
 
-**Time to Level 1 Compliance:** 1-2 weeks
+**Time to Basic conformance:** 1-2 weeks
 
 ---
 
-## 5. Level 2 Implementation
+## 5. Standard Conformance
 
-### 5.1 Additional Requirements
+**Additional requirements:** context layer, OUTCOME records, SHA-256 per record, canonical_state() API, 7-year retention, third-party audit access.
 
-✅ All Level 1 requirements  
-✅ Complete context layer  
-✅ Outcome tracking  
-✅ Cryptographic verification  
-✅ Minimum 7-year retention  
-✅ Third-party audit capability
+### 5.1 Standard Checklist
 
-### 5.2 Context Layer Implementation
-
-```python
-class Level2DecisionVault(DecisionVault):
-    """
-    ODS Level 2 compliant vault with context and outcomes.
-    """
-    
-    def log_decision(self, decision_data):
-        """Enhanced decision logging with context."""
-        decision_id = str(uuid.uuid4())
-        timestamp = datetime.utcnow().isoformat() + "Z"
-        
-        decision = {
-            "_schema_version": "1.0",
-            "identity": {
-                "decision_id": decision_id,
-                "timestamp_utc": timestamp,
-                "model_version": decision_data["model_version"],
-                "policy_hash": self._calculate_policy_hash(decision_data)
-            },
-            "context": {
-                "regime_state": decision_data["context"]["regime_state"],
-                "regime_confidence": decision_data["context"]["regime_confidence"],
-                "volatility_state": decision_data["context"].get("volatility_state"),
-                "macro_state_vector": decision_data["context"].get("macro_state_vector", [])
-            },
-            "action": decision_data["action"],
-            "cognition": decision_data["cognition"],
-            "outcomes": {},  # Populated later
-            "governance": {
-                "audit_trail": [
-                    {
-                        "timestamp_utc": timestamp,
-                        "event": "DECISION_CREATED",
-                        "actor": decision_data.get("actor", "SYSTEM"),
-                        "metadata": decision_data.get("metadata", {})
-                    }
-                ],
-                "compliance": {
-                    "risk_limit_checks": decision_data.get("risk_checks", []),
-                    "policy_violations": [],
-                    "approvals": decision_data.get("approvals", [])
-                }
-            }
-        }
-        
-        return super()._save_decision(decision)
-    
-    def log_outcome(self, decision_id, outcome_data):
-        """
-        Log outcome for a decision.
-        CRITICAL: This is append-only.
-        """
-        decision = self.get_decision(decision_id)
-        
-        if decision.get("outcomes") and decision["outcomes"].get("actual_result"):
-            raise ValueError("Outcome already logged. ODS is immutable.")
-        
-        timestamp = datetime.utcnow().isoformat() + "Z"
-        expected = decision["cognition"]["expected_value"]
-        actual = outcome_data["actual_result"]
-        delta = actual - expected
-        
-        outcome = {
-            "actual_result": actual,
-            "realized_at": timestamp,
-            "delta_from_expected": delta,
-            "outcome_quality": outcome_data.get("outcome_quality", 0.5)
-        }
-        
-        decision["outcomes"] = outcome
-        decision["governance"]["audit_trail"].append({
-            "timestamp_utc": timestamp,
-            "event": "OUTCOME_LOGGED",
-            "actor": outcome_data.get("actor", "OUTCOME_TRACKER"),
-            "metadata": {"source": outcome_data.get("source", "manual")}
-        })
-        
-        self._save_decision_version(decision)
-        return outcome
 ```
-
-### 5.3 Cryptographic Verification
-
-```python
-class CryptoVerifier:
-    """Cryptographic verification for Level 2 compliance."""
-    
-    def __init__(self, vault_path):
-        self.vault_path = Path(vault_path)
-        self.merkle_tree_file = self.vault_path / "merkle_tree.json"
-    
-    def build_merkle_tree(self, decision_ids):
-        """Build Merkle tree for batch verification."""
-        decisions = [self._load_decision(did) for did in decision_ids]
-        leaves = [self._hash_decision(d) for d in decisions]
-        
-        tree = [leaves]
-        while len(tree[-1]) > 1:
-            level = tree[-1]
-            parent_level = []
-            for i in range(0, len(level), 2):
-                left = level[i]
-                right = level[i + 1] if i + 1 < len(level) else left
-                parent = self._hash_pair(left, right)
-                parent_level.append(parent)
-            tree.append(parent_level)
-        
-        merkle_root = tree[-1][0]
-        self._save_merkle_tree({
-            "merkle_root": merkle_root,
-            "tree": tree,
-            "decision_count": len(decision_ids),
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        })
-        
-        return merkle_root
-```
-
-### 5.4 Level 2 Checklist
-
-```markdown
-□ All Level 1 requirements met
-□ Context layer fully implemented
-□ Regime detection integrated
-□ Outcome logging functional
-□ Merkle tree verification working
+□ All Basic requirements met
+□ Context layer captured on DECISION records
+□ write_outcome() with parent_id validation working
+□ FINAL uniqueness invariant enforced at write time
+□ canonical_state() implemented and exposed via API
+□ SHA-256 per-record hashing in index
 □ 7-year retention configured
-□ Audit API endpoints created
-□ Third-party audit documentation prepared
-□ Compliance reporting dashboard built
-□ Security audit completed
+□ GET /records/{id}/state endpoint available for auditors
+□ Third-party audit access documented
 ```
 
-**Time to Level 2 Compliance:** 4-6 weeks
+**Time to Standard conformance:** 4-6 weeks
 
 ---
 
-## 6. Level 3 Implementation
+## 6. Full Conformance
 
-### 6.1 Additional Requirements
+**Additional requirements:** counterfactuals on DECISION records, DPI/CFR/Learning Velocity computed, real-time governance, permanent retention.
 
-✅ All Level 2 requirements  
-✅ Counterfactual tracking  
-✅ Meta-learning framework  
-✅ Decision quality metrics  
-✅ Learning velocity measurement  
-✅ Real-time governance  
-✅ Permanent retention
+### 6.1 Decision Quality Metrics
 
-### 6.2 Counterfactual Engine
+These implement the formulas in SPECIFICATION.md Section 6. Two conformant implementations MUST produce identical results for the same record graph.
 
 ```python
-class CounterfactualEngine:
-    """Generate and track counterfactuals for Level 3 compliance."""
-    
-    def generate_counterfactuals(self, decision, num_alternatives=5):
-        """Generate alternative actions and their expected outcomes."""
-        action_type = decision["action"]["action_type"]
-        action_size = decision["action"]["action_size"]
-        
-        counterfactuals = []
-        
-        # Alternative 1: Opposite action
-        if action_type == "BUY":
-            alt_action = "SELL"
-        elif action_type == "SELL":
-            alt_action = "BUY"
-        else:
-            alt_action = "HOLD"
-        
-        counterfactuals.append({
-            "alternative_action": alt_action,
-            "expected_outcome": self._estimate_outcome(alt_action, decision),
-            "regret": 0.0
-        })
-        
-        # Alternative sizes
-        for size_factor in [0.5, 1.5, 2.0]:
-            alt_size = action_size * size_factor
-            counterfactuals.append({
-                "alternative_action": f"{action_type}_{alt_size:.2f}",
-                "expected_outcome": self._estimate_outcome(action_type, decision, alt_size),
-                "regret": 0.0
-            })
-        
-        return counterfactuals[:num_alternatives]
-    
-    def calculate_regret(self, decision, actual_outcome):
-        """Calculate regret for each counterfactual."""
-        counterfactuals = decision.get("counterfactuals", [])
-        for cf in counterfactuals:
-            cf["regret"] = cf["expected_outcome"] - actual_outcome["actual_result"]
-        return counterfactuals
-```
+import numpy as np
+from datetime import datetime, timezone
 
-### 6.3 Meta-Learning Framework
 
-```python
-class MetaLearning:
-    """Meta-learning framework for Level 3 compliance."""
-    
-    def __init__(self, vault):
-        self.vault = vault
-    
-    def calculate_dpi(self, decision, outcome):
-        """
-        Calculate Decision Performance Index.
-        DPI = f(calibration, attribution, accuracy, risk_alignment, latency)
-        """
-        scores = {
-            "calibration": self._score_calibration(decision, outcome),
-            "attribution": self._score_attribution(decision, outcome),
-            "accuracy": self._score_accuracy(decision, outcome),
-            "risk_alignment": self._score_risk_alignment(decision),
-            "latency": self._score_latency(decision)
-        }
-        
-        dpi = (
-            scores["calibration"] * 0.30 +
-            scores["attribution"] * 0.25 +
-            scores["accuracy"] * 0.25 +
-            scores["risk_alignment"] * 0.15 +
-            scores["latency"] * 0.05
+class MetricsEngine:
+
+    def dpi(self, decision: dict, final_outcome: dict) -> float:
+        """Decision Performance Index per SPECIFICATION.md Section 6.1."""
+        action = decision.get("action", {})
+        cognition = decision.get("cognition", {})
+        outcomes = final_outcome.get("outcomes", {})
+
+        expected = action.get("expected_value", 0)
+        actual = outcomes.get("actual_result", 0)
+        confidence = cognition.get("confidence", 0)
+        latency_ms = cognition.get("decision_latency_ms")
+
+        accuracy = max(0.0, 1.0 - abs(actual - expected) / max(abs(expected), 1e-9))
+        calibration = 1.0 - abs(confidence - accuracy)
+        attribution = 1.0 if decision.get("identity", {}).get("policy_hash") else 0.0
+        risk_alignment = self._risk_alignment(decision)
+        latency_score = self._latency_score(latency_ms)
+
+        return (
+            calibration   * 0.30 +
+            attribution   * 0.25 +
+            accuracy      * 0.25 +
+            risk_alignment * 0.15 +
+            latency_score  * 0.05
         )
-        
-        return dpi, scores
-    
-    def calculate_learning_velocity(self, time_window_days=30):
+
+    def cfr(self, decision: dict, final_outcome: dict) -> float:
+        """Aggregate Counterfactual Regret per SPECIFICATION.md Section 6.2."""
+        actual = final_outcome.get("outcomes", {}).get("actual_result", 0)
+        counterfactuals = decision.get("counterfactuals", [])
+        regrets = [
+            cf["expected_outcome"] - actual
+            for cf in counterfactuals
+            if cf.get("expected_outcome") is not None and cf["expected_outcome"] - actual > 0
+        ]
+        return float(np.mean(regrets)) if regrets else 0.0
+
+    def learning_velocity(self, store: "ODSStore", window_days: int = 30) -> float | None:
         """
-        Calculate rate of decision quality improvement.
-        LV = Δ(DQI) / Δ(Time)
-        Negative is good (errors decreasing).
+        Learning Velocity per SPECIFICATION.md Section 6.3.
+        OLS regression slope of DPI over time. Positive = improving quality.
+        Returns None if fewer than 10 completed decisions in the window.
         """
-        decisions = self.vault.get_decisions_with_outcomes(days=time_window_days)
-        
-        if len(decisions) < 10:
+        records = self._completed_decisions_in_window(store, window_days)
+        if len(records) < 10:
             return None
-        
+
+        timestamps = []
         dpis = []
-        for d in decisions:
-            dpi, _ = self.calculate_dpi(d, d["outcomes"])
-            dpis.append({
-                "timestamp": d["identity"]["timestamp_utc"],
-                "dpi": dpi
-            })
-        
-        dpis.sort(key=lambda x: x["timestamp"])
-        
-        import numpy as np
-        timestamps = [self._parse_timestamp(d["timestamp"]) for d in dpis]
-        dpi_values = [d["dpi"] for d in dpis]
-        
-        start_time = min(timestamps)
-        days = [(t - start_time).total_seconds() / 86400 for t in timestamps]
-        
-        coeffs = np.polyfit(days, dpi_values, 1)
-        return coeffs[0]  # Slope
+        t0 = datetime.fromisoformat(records[0]["decision"]["timestamp_utc"])
+        for r in records:
+            t = datetime.fromisoformat(r["decision"]["timestamp_utc"])
+            days = (t - t0).total_seconds() / 86400
+            timestamps.append(days)
+            dpis.append(self.dpi(r["decision"], r["outcome_final"]))
+
+        coeffs = np.polyfit(timestamps, dpis, 1)
+        return float(coeffs[0])
+
+    def _risk_alignment(self, decision: dict) -> float:
+        context = decision.get("context", {})
+        action = decision.get("action", {})
+        volatility = context.get("volatility_state", "NORMAL")
+        risk_posture = action.get("risk_posture", 0.5)
+        target = {"LOW": 0.7, "NORMAL": 0.5, "ELEVATED": 0.3, "EXTREME": 0.1}.get(volatility, 0.5)
+        return max(0.0, 1.0 - abs(risk_posture - target))
+
+    def _latency_score(self, latency_ms: int | None, baseline_ms: int = 5000) -> float:
+        if latency_ms is None:
+            return 0.5
+        return max(0.0, 1.0 - latency_ms / baseline_ms)
+
+    def _completed_decisions_in_window(self, store: "ODSStore", days: int) -> list[dict]:
+        cutoff = datetime.now(timezone.utc).timestamp() - days * 86400
+        completed = []
+        if not store.index_file.exists():
+            return completed
+        with open(store.index_file) as f:
+            for line in f:
+                entry = json.loads(line.strip())
+                if entry.get("record_type") != "DECISION":
+                    continue
+                ts = datetime.fromisoformat(entry["timestamp_utc"]).timestamp()
+                if ts < cutoff:
+                    continue
+                try:
+                    state = store.canonical_state(entry["record_id"])
+                    if state["outcome_final"]:
+                        completed.append(state)
+                except (KeyError, ValueError):
+                    pass
+        return sorted(completed, key=lambda r: r["decision"]["timestamp_utc"])
 ```
 
-### 6.4 Level 3 Checklist
+### 6.2 Full Checklist
 
-```markdown
-□ All Level 2 requirements met
-□ Counterfactual engine implemented
-□ DPI calculation automated
-□ CFR (Counterfactual Regret) tracked
-□ Learning Velocity dashboard built
-□ Observer Drift monitoring active
-□ Real-time governance alerts configured
-□ Permanent retention infrastructure
+```
+□ All Standard requirements met
+□ Counterfactuals logged on DECISION records
+□ MetricsEngine.dpi() producing results
+□ MetricsEngine.cfr() producing results
+□ MetricsEngine.learning_velocity() with ≥10 completed decisions
+□ Real-time governance alerts on policy violations
+□ Permanent retention configured
 □ Continuous third-party monitoring arranged
-□ Meta-learning feedback loops operational
 ```
 
-**Time to Level 3 Compliance:** 8-12 weeks
+**Time to Full conformance:** 8-12 weeks
 
 ---
 
 ## 7. Storage Implementation
 
-### 7.1 Production Storage Options
-
-#### Option A: AWS S3 with Object Lock
-
-**Pros:** Fully managed, WORM compliance, 99.999999999% durability
-
-```python
-import boto3
-
-class S3DecisionVault:
-    def __init__(self, bucket_name):
-        self.s3 = boto3.client('s3')
-        self.bucket = bucket_name
-    
-    def save_decision(self, decision):
-        key = f"decisions/{decision['identity']['decision_id']}.json"
-        
-        self.s3.put_object(
-            Bucket=self.bucket,
-            Key=key,
-            Body=json.dumps(decision),
-            ObjectLockMode='GOVERNANCE',
-            ObjectLockRetainUntilDate=datetime.utcnow() + timedelta(days=2555)
-        )
-```
-
-#### Option B: PostgreSQL with Append-Only Pattern
+### 7.1 PostgreSQL with Append-Only Enforcement
 
 ```sql
-CREATE TABLE decisions (
-    decision_id UUID PRIMARY KEY,
-    timestamp_utc TIMESTAMP NOT NULL,
-    decision_data JSONB NOT NULL,
-    decision_hash VARCHAR(64) NOT NULL,
-    created_at TIMESTAMP DEFAULT NOW()
+CREATE TABLE ods_records (
+    record_id     UUID PRIMARY KEY,
+    record_type   TEXT NOT NULL CHECK (record_type IN ('DECISION', 'OUTCOME')),
+    timestamp_utc TIMESTAMPTZ NOT NULL,
+    parent_id     UUID REFERENCES ods_records(record_id),
+    record_data   JSONB NOT NULL,
+    record_hash   CHAR(64) NOT NULL,
+    appended_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE OR REPLACE FUNCTION prevent_modifications()
+CREATE INDEX idx_parent_id ON ods_records(parent_id);
+
+CREATE OR REPLACE FUNCTION reject_modifications()
 RETURNS TRIGGER AS $$
 BEGIN
-    RAISE EXCEPTION 'ODS decisions are immutable';
+    RAISE EXCEPTION 'ODS records are immutable. record_id=% cannot be modified.', OLD.record_id;
 END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER no_updates
-    BEFORE UPDATE OR DELETE ON decisions
-    FOR EACH ROW
-    EXECUTE FUNCTION prevent_modifications();
+    BEFORE UPDATE OR DELETE ON ods_records
+    FOR EACH ROW EXECUTE FUNCTION reject_modifications();
 ```
 
 ---
 
 ## 8. API Design
 
-### 8.1 RESTful API Specification
-
 ```yaml
 openapi: 3.0.0
 info:
-  title: ODS Decision Vault API
+  title: ODS Record Store API
   version: 1.0.0
 
 paths:
-  /v1/decisions:
+  /v1/records:
     post:
-      summary: Log a new decision
+      summary: Write a new record (DECISION or OUTCOME)
+      description: >
+        Validates schema and store-level invariants before writing.
+        Rejects if parent_id not found or FINAL already exists for parent.
       responses:
         '201':
-          description: Decision logged
-    
+          description: Record written
+        '409':
+          description: Store invariant violation (parent_id not found or duplicate FINAL)
+        '422':
+          description: Schema validation failure
+
+  /v1/records/{record_id}:
     get:
-      summary: Query decisions
+      summary: Retrieve a single record by record_id
+
+  /v1/records/{record_id}/state:
+    get:
+      summary: Canonical state of a DECISION per SPECIFICATION.md Section 3.5
+      description: Returns the DECISION record and all linked OUTCOME records.
+
+  /v1/records:
+    get:
+      summary: Query records
       parameters:
-        - name: start_date
+        - name: parent_id
           in: query
-        - name: end_date
+          description: Filter records by parent_id
+        - name: record_type
           in: query
-        - name: regime_state
-          in: query
-  
-  /v1/decisions/{decision_id}:
+          description: Filter by record_type (DECISION or OUTCOME)
+
+  /v1/records/{record_id}/verify:
     get:
-      summary: Get specific decision
-  
-  /v1/decisions/{decision_id}/outcome:
-    put:
-      summary: Log outcome for decision
-  
-  /v1/decisions/{decision_id}/verify:
-    get:
-      summary: Verify decision integrity
-```
-
-### 8.2 Flask Implementation
-
-```python
-from flask import Flask, request, jsonify
-from decision_vault import DecisionVault
-
-app = Flask(__name__)
-vault = DecisionVault()
-
-@app.route('/v1/decisions', methods=['POST'])
-def log_decision():
-    decision_data = request.json
-    try:
-        decision_id = vault.log_decision(decision_data)
-        decision = vault.get_decision(decision_id)
-        decision_hash = vault.calculate_hash(decision)
-        return jsonify({
-            "decision_id": decision_id,
-            "hash": decision_hash,
-            "timestamp": decision["identity"]["timestamp_utc"]
-        }), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+      summary: Verify SHA-256 integrity of a record
 ```
 
 ---
 
 ## 9. Security Considerations
 
-### 9.1 Authentication
-
-```python
-from functools import wraps
-import jwt
-
-def require_auth(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization')
-        if not token:
-            return jsonify({"error": "No token provided"}), 401
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
-            request.user = payload
-        except jwt.ExpiredSignatureError:
-            return jsonify({"error": "Token expired"}), 401
-        return f(*args, **kwargs)
-    return decorated
-```
-
-### 9.2 Encryption at Rest
-
-```python
-from cryptography.fernet import Fernet
-
-class EncryptedDecisionVault(DecisionVault):
-    def __init__(self, vault_path, encryption_key):
-        super().__init__(vault_path)
-        self.cipher = Fernet(encryption_key)
-    
-    def _save_decision(self, decision):
-        decision_json = json.dumps(decision)
-        encrypted = self.cipher.encrypt(decision_json.encode())
-        decision_file = self.decisions_path / f"{decision['identity']['decision_id']}.enc"
-        decision_file.write_bytes(encrypted)
-```
+- Use TLS 1.3+ for all API communication
+- Authenticate all writes with strong identity (OAuth 2.0 / mTLS)
+- Store SHA-256 keys and signing keys in an HSM or equivalent
+- Log all read and write access to the store
+- Encrypt data at rest; ODS records are immutable but not inherently confidential
+- Rate-limit write endpoints to prevent log flooding
 
 ---
 
 ## 10. Testing and Validation
 
-### 10.1 Unit Tests
+### 10.1 Schema Validation
+
+```bash
+python validator/validate.py examples/minimal_decision.json
+python validator/validate.py examples/complete_decision.json
+python validator/validate.py examples/outcome_final.json --store examples/
+```
+
+### 10.2 Invariant Tests
 
 ```python
 import unittest
+from pathlib import Path
+import tempfile
 
-class TestDecisionVault(unittest.TestCase):
+
+class TestODSStore(unittest.TestCase):
+
     def setUp(self):
-        self.vault = DecisionVault(vault_path="./test_vault")
-    
-    def test_log_decision(self):
-        decision_id = self.vault.log_decision({
-            "model_version": "v1.0.0",
-            "action": {"action_type": "BUY", "action_size": 0.25},
-            "cognition": {"confidence": 0.75, "rationale": "Test"}
-        })
-        
-        self.assertIsNotNone(decision_id)
-    
-    def test_immutability(self):
-        decision_id = self.vault.log_decision({...})
-        with self.assertRaises(Exception):
-            self.vault.modify_decision(decision_id, {...})
-    
+        self.tmp = tempfile.mkdtemp()
+        self.store = ODSStore(self.tmp)
+
+    def _make_decision(self):
+        return self.store.write_decision(
+            model_version="v1.0.0",
+            policy={"name": "test_policy"},
+            action={"action_type": "APPROVE", "expected_value": 0.10},
+            cognition={"confidence": 0.80, "rationale": "Test rationale for decision"},
+        )
+
+    def test_decision_has_no_outcomes_field(self):
+        did = self._make_decision()
+        record = self.store.get_record(did)
+        self.assertNotIn("outcomes", record)
+
+    def test_outcome_rejected_without_valid_parent(self):
+        with self.assertRaises(ValueError, msg="parent_id not found"):
+            self.store.write_outcome(
+                parent_id="00000000-0000-0000-0000-000000000000",
+                actual_result=0.12,
+                realized_at="2026-06-01T00:00:00+00:00",
+                outcome_status="FINAL",
+            )
+
+    def test_second_final_rejected(self):
+        did = self._make_decision()
+        self.store.write_outcome(did, 0.10, "2026-06-01T00:00:00+00:00", "FINAL")
+        with self.assertRaises(ValueError, msg="FINAL already exists"):
+            self.store.write_outcome(did, 0.12, "2026-06-02T00:00:00+00:00", "FINAL")
+
+    def test_multiple_partials_allowed(self):
+        did = self._make_decision()
+        self.store.write_outcome(did, 0.05, "2026-05-15T00:00:00+00:00", "PARTIAL")
+        self.store.write_outcome(did, 0.08, "2026-05-22T00:00:00+00:00", "PARTIAL")
+        state = self.store.canonical_state(did)
+        self.assertEqual(len(state["outcomes_partial"]), 2)
+        self.assertIsNone(state["outcome_final"])
+
+    def test_canonical_state(self):
+        did = self._make_decision()
+        self.store.write_outcome(did, 0.05, "2026-05-15T00:00:00+00:00", "PARTIAL")
+        self.store.write_outcome(did, 0.12, "2026-06-01T00:00:00+00:00", "FINAL")
+        state = self.store.canonical_state(did)
+        self.assertEqual(len(state["outcomes_partial"]), 1)
+        self.assertIsNotNone(state["outcome_final"])
+        self.assertEqual(state["outcome_final"]["outcomes"]["actual_result"], 0.12)
+
     def test_integrity_verification(self):
-        decision_id = self.vault.log_decision({...})
-        is_valid, message = self.vault.verify_integrity()
-        self.assertTrue(is_valid)
+        self._make_decision()
+        ok, msg = self.store.verify_integrity()
+        self.assertTrue(ok)
 ```
 
 ---
 
 ## 11. Deployment Patterns
 
-### 11.1 Docker Deployment
+### 11.1 Docker
 
 ```dockerfile
 FROM python:3.11-slim
-
 WORKDIR /app
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
 COPY . .
-
 EXPOSE 5000
-
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
 ```
 
-```yaml
-version: '3.8'
-
-services:
-  vault:
-    build: .
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./decision_vault:/var/lib/decision_vault
-    environment:
-      - VAULT_PATH=/var/lib/decision_vault
-      - SECRET_KEY=${SECRET_KEY}
-```
-
-### 11.2 Kubernetes Deployment
+### 11.2 Kubernetes
 
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: decision-vault
+  name: ods-store
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: decision-vault
+      app: ods-store
   template:
-    metadata:
-      labels:
-        app: decision-vault
     spec:
       containers:
-      - name: vault
-        image: ods/decision-vault:1.0
+      - name: ods-store
+        image: ods/store:1.0.0
         ports:
         - containerPort: 5000
         volumeMounts:
-        - name: vault-storage
-          mountPath: /var/lib/decision_vault
+        - name: store-volume
+          mountPath: /var/lib/ods
       volumes:
-      - name: vault-storage
+      - name: store-volume
         persistentVolumeClaim:
-          claimName: vault-pvc
+          claimName: ods-store-pvc
 ```
 
 ---
 
-## 12. Reference Implementation
-
-### 12.1 ORPI Decision Vault™
-
-The reference implementation is the **ORPI Decision Vault™** by ORPI Systems.
-
-**Features:**
-- Complete ODS Level 3 compliance
-- Production-ready architecture
-- Comprehensive test suite
-- Docker deployment
-- API documentation
-- Real-world validation: 1,786 decisions logged
-
-For partnership inquiries: contact ORPI Systems.
-
----
-
-## Appendix: Troubleshooting
-
-### Common Issues
-
-**Issue:** "Permission denied" when writing decisions  
-**Solution:** Check file permissions: `chmod 755 /var/lib/decision_vault`
-
-**Issue:** "Integrity verification failed"  
-**Solution:** Check for file system corruption or unauthorized modifications
-
-**Issue:** "Out of disk space"  
-**Solution:** Implement log rotation and archival to cold storage
-
----
-
-## Support
-
-**Documentation:** [SPECIFICATION.md](./SPECIFICATION.md)  
-**Community:** [GitHub Discussions](https://github.com/ODS-Foundation/ods-specification/discussions)  
-**Issues:** [GitHub Issues](https://github.com/ODS-Foundation/ods-specification/issues)
-
----
-
-**Version:** 1.0  
-**Last Updated:** April 2026  
+**Version:** 1.0.0
+**Last Updated:** May 2026
 **License:** Apache 2.0
-
----
-
-*Building institutional decision memory, one decision at a time.*
