@@ -58,7 +58,7 @@ Every record shares the same identity envelope:
 
 ```python
 {
-    "_schema_version": "1.0",
+    "_schema_version": "1.1.0",
     "record_type": "DECISION",  # or "OUTCOME"
     "record_id": str(uuid4()),
     "timestamp_utc": datetime.utcnow().isoformat() + "+00:00",
@@ -123,7 +123,7 @@ class ODSStore:
         policy_hash = hashlib.sha256(jcs.canonicalize(policy)).hexdigest()
 
         record = {
-            "_schema_version": "1.0",
+            "_schema_version": "1.1.0",
             "record_type": "DECISION",
             "record_id": str(uuid.uuid4()),
             "timestamp_utc": timestamp,
@@ -194,7 +194,7 @@ class ODSStore:
             outcomes["outcome_quality"] = outcome_quality
 
         record = {
-            "_schema_version": "1.0",
+            "_schema_version": "1.1.0",
             "record_type": "OUTCOME",
             "record_id": str(uuid.uuid4()),
             "timestamp_utc": timestamp,

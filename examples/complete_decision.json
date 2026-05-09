@@ -1,5 +1,5 @@
 {
-  "_schema_version": "1.0",
+  "_schema_version": "1.1.0",
   "record_type": "DECISION",
   "record_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "timestamp_utc": "2026-04-28T14:23:45.123456+00:00",
