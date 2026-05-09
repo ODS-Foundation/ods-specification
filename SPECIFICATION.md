@@ -154,7 +154,7 @@ Every record, regardless of type, shares this identity structure:
 
 ```json
 {
-  "_schema_version": "1.0",
+  "_schema_version": "1.1.0",
   "record_type": "DECISION | OUTCOME",
   "record_id": "UUID v4",
   "timestamp_utc": "ISO 8601 UTC",
@@ -189,7 +189,7 @@ A DECISION record captures the full context of a decision at the moment it is ma
 
 ```json
 {
-  "_schema_version": "1.0",
+  "_schema_version": "1.1.0",
   "record_type": "DECISION",
   "record_id": "UUID v4",
   "timestamp_utc": "ISO 8601 UTC",
@@ -244,7 +244,7 @@ An OUTCOME record captures a realized outcome for a DECISION. It is a first-clas
 
 ```json
 {
-  "_schema_version": "1.0",
+  "_schema_version": "1.1.0",
   "record_type": "OUTCOME",
   "record_id": "UUID v4",
   "timestamp_utc": "ISO 8601 UTC",

@@ -1,12 +1,14 @@
 # Operational Decision Standard (ODS)
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Version](https://img.shields.io/badge/version-1.0-green.svg)](./CHANGELOG.md)
-[![Status](https://img.shields.io/badge/status-Foundation%20Release-success.svg)](./SPECIFICATION.md)
+[![Version](https://img.shields.io/badge/version-1.1.0-green.svg)](./CHANGELOG.md)
+[![Status](https://img.shields.io/badge/status-Stable-success.svg)](./SPECIFICATION.md)
 [![Conformance](https://img.shields.io/badge/conformance-Basic%20%7C%20Standard%20%7C%20Full-orange.svg)](./CONFORMANCE.md)
 [![Validator](https://img.shields.io/badge/validator-executable-blueviolet.svg)](./validator/)
 
 > **The open standard for institutional decision memory.**
+
+> **Current version: v1.1.0** — v1.0 is deprecated and must not be implemented. v1.0 contained a fundamental immutability contradiction that makes any v1.0-compliant system unauditable. v1.1.0 is the first defensible release. See [CHANGELOG.md](./CHANGELOG.md) for details.
 
 ODS defines the schema, governance, and verification model for organizations to capture, audit, and learn from their decisions over time.
 
@@ -47,7 +49,7 @@ ODS addresses this gap with a single, open, neutral specification.
 
 | Document | Purpose |
 |----------|---------|
-| [SPECIFICATION.md](./SPECIFICATION.md) | Complete v1.0 technical specification |
+| [SPECIFICATION.md](./SPECIFICATION.md) | Complete v1.1.0 technical specification |
 | [IMPLEMENTATION.md](./IMPLEMENTATION.md) | Developer guide with code examples |
 | [RATIONALE.md](./RATIONALE.md) | Why ODS exists and how it transforms governance |
 | [CONFORMANCE.md](./CONFORMANCE.md) | Conformance levels and verification |
@@ -100,45 +102,41 @@ Full details in [CONFORMANCE.md](./CONFORMANCE.md).
 
 ## Quick Start
 
-### Validate a Decision Record
+### Validate a Record
 
 ```bash
-pip install -r requirements.txt
+pip install jsonschema jcs
 python validator/validate.py examples/minimal_decision.json
 ```
 
 Expected output:
 
 ```
-✓ ODS VALID: compliant with schema v1.0
+✓ ODS VALID: DECISION record compliant with schema v1.1.0
 ```
 
 ### Minimal Decision Example
 
 ```json
 {
-  "_schema_version": "1.0",
+  "_schema_version": "1.1.0",
+  "record_type": "DECISION",
+  "record_id": "550e8400-e29b-41d4-a716-446655440000",
+  "timestamp_utc": "2026-05-06T10:30:00.000000+00:00",
   "identity": {
-    "decision_id": "550e8400-e29b-41d4-a716-446655440000",
-    "timestamp_utc": "2026-04-28T14:23:45.123456+00:00",
     "model_version": "v1.0.0",
-    "policy_hash": "sha256:..."
-  },
-  "context": {
-    "regime_state": "NORMAL",
-    "regime_confidence": 0.87
+    "policy_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
   "action": {
     "action_type": "APPROVE",
     "expected_value": 0.15
   },
   "cognition": {
-    "confidence": 0.72,
+    "confidence": 0.85,
     "rationale": "All criteria met within risk tolerance"
   },
   "governance": {
-    "audit_trail": [],
-    "compliance": {"risk_limit_checks": ["PASSED"]}
+    "audit_trail": [{"timestamp_utc": "2026-05-06T10:30:00+00:00", "event": "DECISION_CREATED", "actor": "SYSTEM", "metadata": {}}]
   }
 }
 ```
@@ -207,9 +205,9 @@ The Technical Committee makes final decisions on RFC acceptance, major versions,
 
 ## Roadmap
 
-**v1.x** — schema stability, validator hardening, ecosystem tooling
-**v1.1 (Q3 2026)** — multi-party decisions, privacy-preserving extensions, real-time streams
-**v2.0 (2027)** — causal inference, cross-organizational benchmarking, blockchain interoperability
+**v1.1.0 (current)** — immutability-correct record model, RFC 8785 policy_hash, formalized metrics
+**v1.2 (planned)** — empirically validated DPI weights, CORRECTION/ANNOTATION record types, conformance test suite
+**v2.0 (long-term)** — causal inference, cross-organizational benchmarking, AI explainability alignment
 
 Full plan in [ROADMAP.md](./ROADMAP.md).
 

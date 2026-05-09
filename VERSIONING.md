@@ -104,7 +104,7 @@ All version increments go through the [RFC process](./rfcs/README.md):
 Every ODS record includes:
 
 ```json
-"_schema_version": "1.0"
+"_schema_version": "1.1.0"
 ```
 
 Implementations:
@@ -115,11 +115,25 @@ Implementations:
 
 ---
 
-## Pre-1.0 Versions
+## Version Status
+
+### v1.1.0 — Current stable release
+
+v1.1.0 is the first defensible release of ODS. Implementations SHOULD target v1.1.0.
+
+### v1.0 — Deprecated
+
+**v1.0 is deprecated and MUST NOT be used for new implementations.**
+
+v1.0 contained a fundamental immutability contradiction: the specification required that records never be modified, while the reference implementation modified DECISION records in place to append outcome data. This rendered any v1.0-compliant system cryptographically unauditable — the hash of the original record would change after the first outcome was logged.
+
+There is no migration path that preserves existing v1.0 record hashes. Implementers with v1.0 systems should treat existing records as non-conformant and re-log from source data where possible.
+
+See [CHANGELOG.md](./CHANGELOG.md) for a full account of the findings and the changes made in v1.1.0.
+
+### Pre-1.0 Versions
 
 ODS versions prior to 1.0 are **not stable** and may change without notice.
-
-ODS v1.0 is the first **stable** release with the guarantees described in this document.
 
 ---
 
