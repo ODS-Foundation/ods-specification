@@ -7,6 +7,50 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.ht
 
 ---
 
+## [2.0.0] - 2026-05-09
+
+**v2.0.0 introduces the ODS Core + Profiles architecture.**
+
+v1.x embedded finance-domain vocabulary (`regime_state`, `volatility_state`, `risk_posture`, `risk_limit_checks`) in the core specification. This made the core specification a moving target for every domain and diluted the informational value of the conformance signal. v2.0 resolves this by separating the universal protocol substrate (core) from independently-versioned domain extensions (profiles).
+
+### Added
+
+- **PROFILES.md** — normative profile registry with status definitions, authoring bar (two-phase with explicit transition date 2028-05-08), reservation expiry rules, and backward-compatibility rules for profile major versions
+- **ODS-Finance/v1 profile** — first authored profile; content migrated from finance-domain fields in ODS Core v1.1.0. Reaches `authored` status by Council resolution (migration profile exemption). Schema: `schema/profiles/ods-finance-v1.json`
+- **`profile` field** — new field on DECISION and OUTCOME records identifying the domain profile. Required on DECISION when `action` section is present (E4 rule); optional on OUTCOME
+- **`schema/profiles/registry.json`** — machine-readable profile registry consumed by the validator for reserved-namespace checks
+- **`schema/ods_record_v2.json`** — new core schema; replaces `ods_record_v1.json` for v2.0 records
+- **`examples/core_only_decision.json`** — example DECISION record without profile (governance-only, no action)
+- **`examples/finance_decision.json`** — example DECISION record using ODS-Finance/v1 profile
+
+### Changed
+
+- **Core field set narrowed:** Finance-domain fields migrated from core to ODS-Finance/v1:
+  - `context.regime_state`, `context.regime_confidence`, `context.volatility_state`, `context.macro_state_vector` → ODS-Finance/v1
+  - `action.risk_posture`, `action.capital_at_risk_bps` → ODS-Finance/v1
+  - `compliance.risk_limit_checks` → ODS-Finance/v1
+  - `compliance.policy_violations`, `compliance.approvals` → remain core (universal governance infrastructure)
+- **`action` section made conditional** on DECISION records: governance-only records (no `action`) are valid core records without a profile. Operational records (with `action`) require `profile`
+- **`context` cardinality changed** from required-with-structure (v1.x) to RECOMMENDED extensible container (SHOULD). Core imposes no required properties on `context`; profiles define domain-specific context structure
+- **Two-axis conformance:** Conformance is now declared independently for core and profile (e.g., "ODS Core v2 Standard + ODS-Finance v1 Full"). Profile conformance level may not exceed core conformance level
+- **`_schema_version`** updated to `"2.0.0"` throughout
+- **CONFORMANCE.md** rewritten for two-axis conformance, including conformance cap justification and validator behavior specification for missing profile schemas
+- **SPECIFICATION.md** updated to v2.0: §3 record model, §4 field specs (with E2 action field table), §5 conformance, §8 (new) profile specification including "One Profile Per Record" normative principle
+- **Validator extended** (`validator/validate.py`): two-pass validation (core + profile), reserved-namespace error (OQ3), missing profile schema error with `--skip-missing-profile` flag, OUTCOME profile consistency check in `--store` mode
+
+### Migration from v1.1.0
+
+v1.1.0 records are not forward-compatible with v2.0 by schema. Migration steps:
+1. `_schema_version: "1.1.0"` → `"2.0.0"`
+2. Finance context fields move from core to ODS-Finance/v1 profile context (field names preserved)
+3. `action.risk_posture`, `action.capital_at_risk_bps` move to ODS-Finance/v1
+4. `compliance.risk_limit_checks` moves to ODS-Finance/v1
+5. Add `"profile": "ODS-Finance/v1"` to all DECISION records containing an `action` section
+
+Existing v1.1.0 records need not be re-logged. Implementations SHOULD support reading both schema versions.
+
+---
+
 ## [1.1.0] - 2026-05-08
 
 **v1.1.0 is the first defensible release of ODS.**

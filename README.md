@@ -1,14 +1,14 @@
 # Operational Decision Standard (ODS)
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Version](https://img.shields.io/badge/version-1.1.0-green.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](./CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-Stable-success.svg)](./SPECIFICATION.md)
-[![Conformance](https://img.shields.io/badge/conformance-Basic%20%7C%20Standard%20%7C%20Full-orange.svg)](./CONFORMANCE.md)
+[![Conformance](https://img.shields.io/badge/conformance-Core%20%2B%20Profiles-orange.svg)](./CONFORMANCE.md)
 [![Validator](https://img.shields.io/badge/validator-executable-blueviolet.svg)](./validator/)
 
 > **The open standard for institutional decision memory.**
 
-> **Current version: v1.1.0** — v1.0 is deprecated and must not be implemented. v1.0 contained a fundamental immutability contradiction that makes any v1.0-compliant system unauditable. v1.1.0 is the first defensible release. See [CHANGELOG.md](./CHANGELOG.md) for details.
+> **Current version: v2.0.0** — introduces the ODS Core + Profiles architecture. Finance-domain fields are now in ODS-Finance/v1 profile; the core specification is domain-agnostic. v1.1.0 records remain valid; see [CHANGELOG.md](./CHANGELOG.md) for the migration path. v1.0 is deprecated and must not be implemented.
 
 ODS defines the schema, governance, and verification model for organizations to capture, audit, and learn from their decisions over time.
 
@@ -49,10 +49,11 @@ ODS addresses this gap with a single, open, neutral specification.
 
 | Document | Purpose |
 |----------|---------|
-| [SPECIFICATION.md](./SPECIFICATION.md) | Complete v1.1.0 technical specification |
+| [SPECIFICATION.md](./SPECIFICATION.md) | Complete v2.0.0 technical specification |
+| [PROFILES.md](./PROFILES.md) | Profile registry, authoring bar, and conformance rules |
+| [CONFORMANCE.md](./CONFORMANCE.md) | Two-axis conformance levels and verification |
 | [IMPLEMENTATION.md](./IMPLEMENTATION.md) | Developer guide with code examples |
 | [RATIONALE.md](./RATIONALE.md) | Why ODS exists and how it transforms governance |
-| [CONFORMANCE.md](./CONFORMANCE.md) | Conformance levels and verification |
 | [GOVERNANCE.md](./GOVERNANCE.md) | Project governance model |
 | [VERSIONING.md](./VERSIONING.md) | Versioning and stability policy |
 | [COMPATIBILITY.md](./COMPATIBILITY.md) | Backward compatibility commitments |
@@ -106,42 +107,60 @@ Full details in [CONFORMANCE.md](./CONFORMANCE.md).
 
 ```bash
 pip install jsonschema jcs
-python validator/validate.py examples/minimal_decision.json
+python validator/validate.py examples/core_only_decision.json
+python validator/validate.py examples/finance_decision.json
 ```
 
 Expected output:
 
 ```
-✓ ODS VALID: DECISION record compliant with schema v1.1.0
+✓ ODS VALID: DECISION record compliant with core schema v2.0.0
+✓ ODS VALID: DECISION record compliant with core schema v2.0.0 [ODS-Finance/v1]
 ```
 
-### Minimal Decision Example
+### Core-Only Record (governance, no profile)
 
 ```json
 {
-  "_schema_version": "1.1.0",
+  "_schema_version": "2.0.0",
   "record_type": "DECISION",
-  "record_id": "550e8400-e29b-41d4-a716-446655440000",
-  "timestamp_utc": "2026-05-06T10:30:00.000000+00:00",
+  "record_id": "7a3f1c2e-0001-4000-a000-000000000001",
+  "timestamp_utc": "2026-05-09T10:00:00.000000+00:00",
   "identity": {
     "model_version": "v1.0.0",
     "policy_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   },
-  "action": {
-    "action_type": "APPROVE",
-    "expected_value": 0.15
-  },
   "cognition": {
-    "confidence": 0.85,
-    "rationale": "All criteria met within risk tolerance"
+    "confidence": 1.0,
+    "rationale": "Policy attestation logged for Q2 2026 governance review."
   },
   "governance": {
-    "audit_trail": [{"timestamp_utc": "2026-05-06T10:30:00+00:00", "event": "DECISION_CREATED", "actor": "SYSTEM", "metadata": {}}]
+    "audit_trail": [{"timestamp_utc": "2026-05-09T10:00:00+00:00", "event": "DECISION_CREATED", "actor": "GOVERNANCE_SYSTEM", "metadata": {}}]
   }
 }
 ```
 
-See [examples/](./examples/) for more.
+### Finance Decision (with ODS-Finance/v1 profile)
+
+```json
+{
+  "_schema_version": "2.0.0",
+  "record_type": "DECISION",
+  "record_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "timestamp_utc": "2026-05-09T14:23:45.123456+00:00",
+  "profile": "ODS-Finance/v1",
+  "identity": { "model_version": "v2.1.0", "policy_hash": "189bff6265300365c5ff0d775393db04714f1476ef063bc99a215c9e46a16971" },
+  "context": { "regime_state": "NORMAL", "volatility_state": "ELEVATED" },
+  "action": { "action_type": "BUY", "action_size": 50000.0, "expected_value": 0.08, "risk_posture": 0.62 },
+  "cognition": { "confidence": 0.78, "rationale": "Momentum signal above threshold in elevated-volatility regime." },
+  "governance": {
+    "audit_trail": [{"timestamp_utc": "2026-05-09T14:23:45+00:00", "event": "DECISION_CREATED", "actor": "ALPHA_ENGINE_v2.1", "metadata": {}}],
+    "compliance": { "policy_violations": [], "approvals": ["AUTO_APPROVED"], "risk_limit_checks": ["VAR_LIMIT_PASSED"] }
+  }
+}
+```
+
+See [examples/](./examples/) for complete records.
 
 ---
 
@@ -205,9 +224,9 @@ The Technical Committee makes final decisions on RFC acceptance, major versions,
 
 ## Roadmap
 
-**v1.1.0 (current)** — immutability-correct record model, RFC 8785 policy_hash, formalized metrics
-**v1.2 (planned)** — empirically validated DPI weights, CORRECTION/ANNOTATION record types, conformance test suite
-**v2.0 (long-term)** — causal inference, cross-organizational benchmarking, AI explainability alignment
+**v2.0.0 (current)** — ODS Core + Profiles architecture; ODS-Finance/v1 first authored profile; domain-agnostic core
+**v2.1 (planned)** — CORRECTION/ANNOTATION record types, empirically validated DPI weights, ODS-Healthcare/v1 RFC
+**v2.x (roadmap)** — causal inference integration, cross-organizational benchmarking, AI explainability alignment
 
 Full plan in [ROADMAP.md](./ROADMAP.md).
 

@@ -1,8 +1,8 @@
-# Operational Decision Standard (ODS) v1.0
+# Operational Decision Standard (ODS) v2.0
 
 **Status:** PUBLISHED
-**Version:** 1.0
-**Date:** April 2026
+**Version:** 2.0.0
+**Date:** May 2026
 **License:** Apache 2.0
 **Maintainer:** ODS Foundation
 
@@ -12,9 +12,9 @@
 
 The Operational Decision Standard (ODS) defines a unified schema and methodology for institutional decision memory systems. ODS establishes requirements for logging, verifying, and governing organizational decisions in a manner that ensures immutability, auditability, and temporal integrity.
 
-This standard addresses a critical gap in enterprise infrastructure: the absence of verifiable, auditable decision trails. While organizations invest heavily in data warehouses, business intelligence, and analytics, they lack standardized infrastructure for decision governance—the process of capturing, validating, and learning from decisions over time.
+ODS v2.0 introduces a two-layer architecture: a minimal, domain-agnostic **core protocol** that is universal across all decision-logging contexts, and independently-versioned **domain profiles** that extend the core with domain-specific fields. The core defines the invariants; profiles define the vocabulary.
 
-ODS provides this missing infrastructure layer.
+This standard addresses a critical gap in enterprise infrastructure: the absence of verifiable, auditable decision trails. ODS provides the missing infrastructure layer.
 
 **Scope:** This standard applies to all organizational decisions where:
 - Financial impact exceeds material thresholds
@@ -39,11 +39,12 @@ Organizations make thousands of critical decisions annually. In most cases:
 - Auditability is impossible
 
 ODS solves this by defining:
-1. **Record Schema** — standardized structure for all record types
-2. **Governance Requirements** — audit trails, compliance, explainability
-3. **Temporal Integrity** — immutable logging with cryptographic verification
-4. **Meta-Learning Framework** — systematic improvement mechanisms
-5. **Compliance Levels** — tiered implementation pathways
+1. **Core Protocol** — a domain-agnostic record schema and governance model
+2. **Domain Profiles** — independently-versioned extensions for specific industries
+3. **Governance Requirements** — audit trails, compliance, explainability
+4. **Temporal Integrity** — immutable logging with cryptographic verification
+5. **Meta-Learning Framework** — systematic improvement mechanisms
+6. **Conformance Levels** — tiered implementation pathways, independent for core and profile
 
 ### 1.2 Problem Statement
 
@@ -67,6 +68,8 @@ ODS provides a standardized infrastructure layer for decision governance, analog
 - GDPR standardizes data protection
 
 ODS standardizes **decision memory**.
+
+The v2.0 architecture separates protocol from vocabulary. The core protocol defines what is universal: the record model, immutability guarantees, cryptographic verification, and governance infrastructure. Domain profiles define what is domain-specific: the fields that characterize decisions in a given industry. This separation means the core specification is stable across domains, and domain extensions do not require core changes.
 
 ---
 
@@ -100,7 +103,7 @@ ODS implementations MUST adhere to six constitutional principles:
 
 ### 2.4 Temporal Integrity
 
-**Requirement:** Every decision MUST capture complete temporal context—state of the world at decision time.
+**Requirement:** Every decision MUST capture complete temporal context — state of the world at decision time.
 
 **Rationale:** Reconstructing decisions requires knowing what information was available when the decision was made.
 
@@ -134,14 +137,14 @@ The current state of a decision is not stored in any single record — it is com
 
 ### 3.2 Record Types
 
-ODS v1.0 defines two record types:
+ODS v2.0 defines two record types:
 
 | `record_type` | Purpose |
 |---------------|---------|
 | `DECISION` | The primary record capturing the decision, its context, rationale, and governance. Created once, never modified. |
 | `OUTCOME` | A record capturing a realized outcome linked to a DECISION. Created after the outcome is known. |
 
-The following types are reserved for future minor versions and MUST NOT be used in v1.0 implementations:
+The following types are reserved for future minor versions and MUST NOT be used in v2.0 implementations:
 
 | `record_type` | Planned Purpose |
 |---------------|-----------------|
@@ -154,11 +157,12 @@ Every record, regardless of type, shares this identity structure:
 
 ```json
 {
-  "_schema_version": "1.1.0",
+  "_schema_version": "2.0.0",
   "record_type": "DECISION | OUTCOME",
   "record_id": "UUID v4",
   "timestamp_utc": "ISO 8601 UTC",
-  "parent_id": "UUID v4 | absent"
+  "parent_id": "UUID v4 | absent",
+  "profile": "namespace/vN | absent"
 }
 ```
 
@@ -174,12 +178,22 @@ Every record, regardless of type, shares this identity structure:
 **`timestamp_utc`** (required, all types)
 - Type: ISO 8601 datetime with UTC timezone
 - Constraints: Must be UTC, microsecond precision
-- Example: `"2026-04-28T14:23:45.123456+00:00"`
+- Example: `"2026-05-09T14:23:45.123456+00:00"`
 
 **`parent_id`** (absent for DECISION; required for OUTCOME)
 - Type: UUID v4
 - Purpose: Reference to the record this record depends on
 - Constraints: MUST reference a `record_id` that exists in the store at write time. A write MUST be rejected with an error if the referenced `parent_id` does not exist.
+
+**`profile`** (conditionally required — see Section 4.1.2 and §E4 rule)
+- Type: String — format `"namespace/vN"` (e.g., `"ODS-Finance/v1"`)
+- Purpose: Identifies the domain profile governing domain-specific fields in this record
+- For DECISION records: REQUIRED when the record contains an `action` section; MAY be absent on governance-only records (no `action`)
+- For OUTCOME records: OPTIONAL; if present, MUST match the profile of the parent DECISION
+
+**`context`** (DECISION records — RECOMMENDED)
+- Type: Object
+- The core imposes no required structure on `context`. It is an extensible container. Profiles MAY define required context fields. See Section 4.1.3.
 
 ### 3.4 Schema by Record Type
 
@@ -189,27 +203,22 @@ A DECISION record captures the full context of a decision at the moment it is ma
 
 ```json
 {
-  "_schema_version": "1.1.0",
+  "_schema_version": "2.0.0",
   "record_type": "DECISION",
   "record_id": "UUID v4",
   "timestamp_utc": "ISO 8601 UTC",
+  "profile": "ODS-Finance/v1",
 
   "identity": {
     "model_version": "semver string",
     "policy_hash": "SHA-256 hex"
   },
 
-  "context": {
-    "regime_state": "enum",
-    "regime_confidence": "float [0,1]",
-    "volatility_state": "enum",
-    "macro_state_vector": []
-  },
+  "context": {},
 
   "action": {
     "action_type": "string",
     "action_size": "float",
-    "risk_posture": "float [0,1]",
     "expected_value": "float"
   },
 
@@ -231,10 +240,15 @@ A DECISION record captures the full context of a decision at the moment it is ma
   "governance": {
     "audit_trail": [],
     "explainability": {},
-    "compliance": {}
+    "compliance": {
+      "policy_violations": [],
+      "approvals": []
+    }
   }
 }
 ```
+
+**E4 rule:** If a DECISION record contains an `action` section, the `profile` field is REQUIRED. A DECISION record MAY omit `profile` only when it contains no `action` section (governance-only records: audit events, policy attestations, meta-records).
 
 A DECISION record MUST NOT contain an `outcomes` field. Outcomes are expressed exclusively through linked OUTCOME records.
 
@@ -244,11 +258,12 @@ An OUTCOME record captures a realized outcome for a DECISION. It is a first-clas
 
 ```json
 {
-  "_schema_version": "1.1.0",
+  "_schema_version": "2.0.0",
   "record_type": "OUTCOME",
   "record_id": "UUID v4",
   "timestamp_utc": "ISO 8601 UTC",
   "parent_id": "UUID v4",
+  "profile": "ODS-Finance/v1",
 
   "outcome_status": "PARTIAL | FINAL",
 
@@ -269,6 +284,11 @@ An OUTCOME record captures a realized outcome for a DECISION. It is a first-clas
 **`outcome_status`** (required)
 - `PARTIAL` — an intermediate measurement. Multiple PARTIAL records may exist for the same DECISION.
 - `FINAL` — closes the outcome cycle for the DECISION. Only one FINAL is permitted per DECISION chain. A write MUST be rejected if a FINAL already exists for the target `parent_id`.
+
+**`profile`** on OUTCOME records (optional)
+- If present, MUST match the `profile` field of the parent DECISION record.
+- If absent, the profile association is resolved via the parent DECISION through `parent_id`.
+- Validators with `--store` enforce consistency. Validators without `--store` validate only core fields and emit a warning about unvalidated profile-specific fields.
 
 **Invariant — one FINAL per chain:** A store MUST reject any attempt to write a second OUTCOME record with `outcome_status: FINAL` for the same `parent_id`. This invariant is evaluated at write time.
 
@@ -297,7 +317,7 @@ function canonical_state(decision_record_id):
 
 **Determinism requirement:** Two conformant implementations reading the same store MUST produce identical canonical state for the same `decision_record_id`. This protocol is the normative definition of "current state" for audit and verification purposes.
 
-**Note on future CORRECTION records (v1.x):** When CORRECTION is introduced in a future minor version, the read protocol will extend to follow correction chains recursively. The terminal record in a correction chain — the one that is not itself corrected by any other record — is the canonical reading for that chain. CORRECTION on a FINAL OUTCOME becomes the new canonical FINAL; the invariant "one FINAL per chain" is evaluated against the terminal record, not against all records historically bearing `outcome_status: FINAL`. The read protocol for v1.0 is complete as specified above; implementations do not need to handle CORRECTION chains.
+**Note on future CORRECTION records (v2.x):** When CORRECTION is introduced in a future minor version, the read protocol will extend to follow correction chains recursively. The terminal record in a correction chain — the one that is not itself corrected by any other record — is the canonical reading for that chain. CORRECTION on a FINAL OUTCOME becomes the new canonical FINAL; the invariant "one FINAL per chain" is evaluated against the terminal record. The read protocol for v2.0 is complete as specified above.
 
 ---
 
@@ -321,45 +341,62 @@ function canonical_state(decision_record_id):
 - Concrete example: policy object `{"version":"3","name":"credit_policy"}` canonicalizes under JCS to `{"name":"credit_policy","version":"3"}` (UTF-8, keys sorted, no whitespace) and produces SHA-256 `189bff6265300365c5ff0d775393db04714f1476ef063bc99a215c9e46a16971`
 - Note: key ordering in the source object is irrelevant; JCS sorting is deterministic across all conformant implementations regardless of programming language
 
-#### 4.1.2 Context Layer
+#### 4.1.2 Profile Field
 
-**`regime_state`** (required for Standard and Full conformance)
-- Type: Enum
-- Purpose: Detected environmental regime at decision time
-- Values: `NORMAL`, `TRANSITION`, `CRISIS`, `RECOVERY`
+**`profile`** (conditionally required on DECISION; optional on OUTCOME)
+- Type: String
+- Format: `"<namespace>/v<major>"` — e.g., `"ODS-Finance/v1"`, `"ODS-Healthcare/v2"`
+- The namespace must correspond to an entry in [PROFILES.md](./PROFILES.md) with status `authored` or higher
+- The major version is the profile's major version number at write time. The precise minor/patch version is resolved via PROFILES.md registry by cross-referencing the record's `timestamp_utc`
 
-**`regime_confidence`** (required for Standard and Full conformance)
-- Type: Float [0.0, 1.0]
-- Purpose: Confidence in regime classification
+**E4 rule:**
 
-**`volatility_state`** (optional)
-- Type: Enum
-- Values: `LOW`, `NORMAL`, `ELEVATED`, `EXTREME`
+| Record type | Condition | `profile` field |
+|-------------|-----------|-----------------|
+| DECISION | Contains `action` section | REQUIRED |
+| DECISION | No `action` section (governance-only) | MAY be absent |
+| OUTCOME | Any | OPTIONAL; if present, MUST match parent DECISION's `profile` |
 
-**`macro_state_vector`** (optional)
-- Type: Array of floats
-- Purpose: Domain-specific normalized state indicators at decision time
+**OQ3 rule:** A `profile` field referencing a namespace with status `reserved` in PROFILES.md is a conformance violation. Validators MUST emit an error, not a warning.
 
-#### 4.1.3 Action Layer
+#### 4.1.3 Context Layer
 
-**`action_type`** (required)
+`context` is a RECOMMENDED (`SHOULD`) extensible container. The core specification imposes no required properties on `context` and no constraint on its contents. Implementations MAY omit `context` entirely without violating core conformance.
+
+Profiles MAY define required context fields within the profile schema extension. A profile MAY also define top-level context fields with documented RFC justification.
+
+**Core schema behavior:** The core schema accepts any object as `context`. Profiles enforce structure on `context` in the second validation pass.
+
+#### 4.1.4 Action Layer
+
+The action layer captures what was decided. The following fields are defined at the core level:
+
+| Field | Core v2.0 | Type | Notes |
+|-------|-----------|------|-------|
+| `action_type` | core | String | Required when action is present. Domain-specific category. ODS does not constrain the vocabulary. |
+| `action_size` | core | Float | Magnitude of action in domain-specific units. Units are domain-defined. |
+| `expected_value` | core | Float | Expected outcome of the decision in domain-specific units. |
+| `risk_posture` | ODS-Finance/v1 | Float [0,1] | Risk appetite at decision time. The [0,1] formalization is a finance idiom. |
+| `capital_at_risk_bps` | ODS-Finance/v1 | Float | Capital at risk expressed in basis points. Purely financial. |
+
+The principle: *structure is universal; vocabulary is profile-specific.* `action_type` and `action_size` remain core fields because every domain has an action category and magnitude, even though the vocabulary and units differ. `risk_posture` and `capital_at_risk_bps` are ODS-Finance/v1 fields because their conceptual framing is finance-specific.
+
+Profiles MAY enumerate valid `action_type` values or specify `action_size` units without moving these fields out of the core schema.
+
+**`action_type`** (required when `action` section is present)
 - Type: String
 - Purpose: Domain-specific category of action taken
-- Note: ODS does not constrain the vocabulary. Implementations define their own action type enumerations appropriate to their domain.
+- Note: ODS does not constrain the vocabulary. Implementations and profiles define their own action type enumerations.
 
 **`action_size`** (optional)
 - Type: Float
 - Purpose: Magnitude of action in domain-specific units
 
-**`risk_posture`** (optional)
-- Type: Float [0.0, 1.0]
-- Purpose: Risk appetite at decision time; 0.0 = minimum risk, 1.0 = maximum risk
-
 **`expected_value`** (optional)
 - Type: Float
 - Purpose: Expected outcome of the decision in domain-specific units
 
-#### 4.1.4 Cognition Layer
+#### 4.1.5 Cognition Layer
 
 **`confidence`** (required)
 - Type: Float [0.0, 1.0]
@@ -377,7 +414,7 @@ function canonical_state(decision_record_id):
 - Type: String [10, 2000] characters
 - Purpose: Human- or machine-readable explanation of why this action was chosen
 
-#### 4.1.5 Counterfactuals Layer
+#### 4.1.6 Counterfactuals Layer
 
 Each counterfactual entry represents an alternative action considered and not taken.
 
@@ -393,7 +430,7 @@ Each counterfactual entry represents an alternative action considered and not ta
 - Type: Float
 - Formula: `alternative_expected_outcome - actual_result` (requires a linked FINAL OUTCOME record)
 
-#### 4.1.6 Governance Layer
+#### 4.1.7 Governance Layer
 
 **`audit_trail`** (required)
 - Type: Array of events
@@ -406,7 +443,11 @@ Each counterfactual entry represents an alternative action considered and not ta
 
 **`compliance`** (optional for Basic; required for Standard and Full)
 - Type: Object
-- Fields: `risk_limit_checks` (array of strings), `policy_violations` (array of strings), `approvals` (array of strings)
+- Core fields:
+  - `policy_violations` (array of strings) — documents policy breaches. Universal: every domain has a concept of policy adherence.
+  - `approvals` (array of strings) — documents authorization grants. Universal: every domain has authorization gates.
+- Profile-defined fields (not in core):
+  - `risk_limit_checks` — defined in ODS-Finance/v1. Finance-domain pre-decision gate checks.
 
 ### 4.2 OUTCOME Fields
 
@@ -434,34 +475,46 @@ Each counterfactual entry represents an alternative action considered and not ta
 **`audit_trail`** (required)
 - Valid events for OUTCOME records: `OUTCOME_LOGGED`, `VERIFIED`, `AUDITED`
 
+**`profile`** (optional)
+- See Section 3.3 and 3.4.2 for the full specification of OUTCOME profile behavior.
+
 ---
 
 ## 5. Conformance Levels
 
-ODS defines three implementation tiers. See [CONFORMANCE.md](./CONFORMANCE.md) for full requirements.
+ODS v2.0 defines conformance independently for core and profile. See [CONFORMANCE.md](./CONFORMANCE.md) for full requirements.
 
-### 5.1 Basic
+Conformance is declared as a two-axis statement:
+
+> "ODS Core v2 Standard + ODS-Finance v1 Full"
+
+A core-only conformance declaration is valid for governance-only implementations:
+
+> "ODS Core v2 Basic"
+
+### 5.1 Core — Basic
 
 **Requirements:**
-- All records use the unified schema with `record_type` discriminator
-- DECISION records logged with identity, action, and cognition layers
+- All records use the unified schema with `record_type` discriminator and `_schema_version: "2.0.0"`
+- DECISION records include identity, cognition, and governance layers
+- DECISION records MUST NOT contain an `outcomes` field
 - Append-only storage; no record modified after write
 - `parent_id` referential integrity enforced at write time
 - Audit trail per record
 - Minimum 1-year retention
 
-### 5.2 Standard
+### 5.2 Core — Standard
 
 **Requirements:**
 - All Basic requirements
-- Context layer captured on DECISION records
-- OUTCOME records logged when outcomes are realized
 - Canonical read protocol (Section 3.5) implemented and exposed via API
+- OUTCOME records logged when outcomes are realized; outcomes are never written by modifying an existing DECISION record
+- FINAL uniqueness invariant enforced at write time
 - Cryptographic verification (SHA-256 per record)
 - Minimum 7-year retention
 - Third-party audit access supported
 
-### 5.3 Full
+### 5.3 Core — Full
 
 **Requirements:**
 - All Standard requirements
@@ -472,20 +525,20 @@ ODS defines three implementation tiers. See [CONFORMANCE.md](./CONFORMANCE.md) f
 
 ---
 
-## 6. Decision Quality Metrics (Level 3)
+## 6. Decision Quality Metrics (Full Conformance)
 
-These metrics are required for Full conformance. They are computed from the graph of DECISION and OUTCOME records. Two conformant implementations MUST produce identical metric values for the same record graph.
+These metrics are required for Full conformance (core or profile). They are computed from the graph of DECISION and OUTCOME records. Two conformant implementations MUST produce identical metric values for the same record graph.
 
-> **Provisional weights notice:** The component weights in §6.1 are provisional and lack empirical justification. They MUST be used as specified for v1.0 conformance comparability, but are subject to revision via RFC before v1.2. Implementations claiming Full conformance are claiming compliance with the spec as written, not with empirically validated metrics.
+> **Provisional weights notice:** The component weights in §6.1 are provisional and lack empirical justification. They MUST be used as specified for v2.0 conformance comparability, but are subject to revision via RFC before v2.1. Implementations claiming Full conformance are claiming compliance with the spec as written, not with empirically validated metrics.
 
 ### 6.1 Decision Performance Index (DPI)
 
 DPI measures the quality of a single decision along five dimensions:
 
 ```
-DPI = (calibration × 0.30)
-    + (attribution  × 0.25)
-    + (accuracy     × 0.25)
+DPI = (calibration    × 0.30)
+    + (attribution    × 0.25)
+    + (accuracy       × 0.25)
     + (risk_alignment × 0.15)
     + (latency_score  × 0.05)
 ```
@@ -497,6 +550,8 @@ Where each dimension is a float [0.0, 1.0]:
 - **accuracy:** `1 - |delta_from_expected| / |expected_value|`, clamped to [0, 1]
 - **risk_alignment:** alignment between `risk_posture` and the volatility context
 - **latency_score:** normalized inverse of `decision_latency_ms` against a domain baseline
+
+> **Note on `risk_alignment`:** This dimension requires `risk_posture` (action layer) and `volatility_state` (context layer), both of which are defined in ODS-Finance/v1. Implementations using core only — without ODS-Finance/v1 — SHOULD compute DPI without the `risk_alignment` dimension, redistributing its weight (0.15) proportionally among the remaining dimensions, such that total weight remains 1.0.
 
 ### 6.2 Counterfactual Regret (CFR)
 
@@ -547,9 +602,9 @@ Implementations MUST enforce the one-FINAL-per-chain invariant at write time. An
 
 **Hashing:** SHA-256 minimum for per-record fingerprinting.
 
-**Canonical serialization for hashing:** UTF-8 encoded JSON, keys sorted lexicographically, no whitespace. Implementations MUST use this canonical form to ensure hash portability across implementations.
+**Canonical serialization for hashing:** RFC 8785 (JSON Canonicalization Scheme, JCS). Implementations MUST use a JCS-conformant library. JCS is portable across all programming languages; Python-flavor `json.dumps(sort_keys=True)` is NOT conformant.
 
-**Verification:** Merkle tree construction is specified in a separate document (pending RFC). For v1.0, per-record SHA-256 hashing is required at Standard conformance; Merkle tree batch verification is required at Full conformance but the exact construction is deferred to v1.1.
+**Verification:** Merkle tree construction is specified in a separate document (pending RFC). For v2.0, per-record SHA-256 hashing is required at Standard conformance; Merkle tree batch verification is required at Full conformance.
 
 ### 7.5 Temporal Requirements
 
@@ -573,55 +628,126 @@ GET  /records/{record_id}/verify    — Cryptographic verification
 
 ---
 
-## 8. Relationship to Existing Standards
+## 8. Profile Specification
 
-### 8.1 ISO 27001
+### 8.1 Architecture
+
+A profile is a named, versioned extension of ODS Core. Profiles define domain-specific fields that extend the core record schema. The two-layer architecture separates the stable protocol substrate (core) from the domain-specific vocabulary (profile).
+
+Profiles:
+- MUST NOT redefine or override core fields
+- MUST declare their dependency on an ODS Core major version
+- Are independently versioned with their own SemVer, beginning at v1
+- Are registered in [PROFILES.md](./PROFILES.md) with a canonical namespace and status
+
+A profile schema is a supplementary JSON Schema document (`schema/profiles/<namespace>-<version>.json`) validated in a second pass after core validation passes.
+
+### 8.2 One Profile Per Record
+
+A record is associated with at most one profile. Cross-domain decisions
+(e.g., a financial trade with hiring implications) are represented at the
+application layer through linked records — not through multi-profile records.
+Each linked record carries its own profile field, and the relationship between
+them is expressed via parent_id chains or application-level metadata, not
+within the profile field itself.
+
+### 8.3 Profile Field Format
+
+The `profile` field stores the namespace and major version:
+
+```
+"profile": "ODS-Finance/v1"
+```
+
+Auditors resolve the precise minor/patch version by cross-referencing the record's `timestamp_utc` against the PROFILES.md registry.
+
+### 8.4 Conformance Claims
+
+Conformance is declared independently for core and profile:
+
+> "ODS Core v2 Standard + ODS-Finance v1 Full"
+
+A profile conformance level may not exceed the core conformance level. Profile conformance levels (Standard, Full) require integrity guarantees from the underlying core — Merkle chain at Standard, full audit cryptography at Full. A profile claim of Full while core is only Basic would mean profile-level audit guarantees rest on infrastructure that does not provide them. The cap ensures conformance claims are honest about their actual integrity foundation.
+
+Conformance claims against reserved profiles (status `reserved` in PROFILES.md) are PROHIBITED. See [PROFILES.md](./PROFILES.md).
+
+### 8.5 Profile Backward Compatibility
+
+Within a profile major version, backward compatibility is governed by the rules in [PROFILES.md §Backward Compatibility](./PROFILES.md). The short form: optional additions are permitted; any breaking change requires a major version increment with a migration RFC.
+
+### 8.6 ODS-Finance/v1
+
+ODS-Finance/v1 is the first authored profile. Its content is migrated from ODS Core v1.1.0 fields that are finance-domain-specific. Its schema is at `schema/profiles/ods-finance-v1.json`.
+
+ODS-Finance/v1 defines:
+
+**Context fields:**
+- `regime_state`: Enum (`NORMAL`, `TRANSITION`, `CRISIS`, `RECOVERY`) — detected market regime
+- `regime_confidence`: Float [0,1] — confidence in regime classification
+- `volatility_state`: Enum (`LOW`, `NORMAL`, `ELEVATED`, `EXTREME`) — volatility environment
+- `macro_state_vector`: Array of floats — normalized macro indicators at decision time
+
+**Action fields:**
+- `action_type`: Enum (`BUY`, `SELL`, `HOLD`, `REDUCE`, `INCREASE`, `ABSTAIN`) — finance action vocabulary
+- `risk_posture`: Float [0,1] — risk appetite; 0.0 = minimum risk, 1.0 = maximum risk
+- `capital_at_risk_bps`: Float — capital at risk in basis points
+
+**Compliance fields:**
+- `risk_limit_checks`: Array of strings — pre-decision gate check results
+
+---
+
+## 9. Relationship to Existing Standards
+
+### 9.1 ISO 27001
 
 ODS complements ISO 27001 by providing decision-specific audit trails, immutability guarantees, and temporal integrity. ISO 27001 governs information security controls; ODS governs decision memory.
 
-### 8.2 SOC 2
+### 9.2 SOC 2
 
 ODS enhances SOC 2 compliance by providing verifiable decision logs and enabling continuous monitoring. SOC 2 defines operational controls; ODS defines decision memory.
 
-### 8.3 GDPR
+### 9.3 GDPR
 
 ODS is compatible with GDPR:
 - Right to explanation → explainability layer in DECISION records
 - Right to erasure → handle via anonymization of actor identifiers, not deletion of records
 - Data minimization → log only decision-relevant data
 
-### 8.4 Basel III / Dodd-Frank
+### 9.4 Basel III / Dodd-Frank
 
-ODS supports financial regulatory compliance via risk decision audit trails, model governance tracking, and stress test documentation.
+ODS supports financial regulatory compliance via risk decision audit trails, model governance tracking, and stress test documentation. ODS-Finance/v1 is specifically designed for finance-regulated environments.
 
 ---
 
-## 9. Reference Implementation
+## 10. Reference Implementation
 
-### 9.1 ORPI Decision Vault
+### 10.1 ORPI Decision Vault
 
 The first Full-conformance implementation is **ORPI Decision Vault** by ORPI Systems.
 
+**Conformance:** ODS Core v2 Full + ODS-Finance v1 Full
+
 **Source:** Reference implementation available at github.com/orpi-systems/decision-vault
 
-### 9.2 Implementation Guide
+### 10.2 Implementation Guide
 
 See [IMPLEMENTATION.md](./IMPLEMENTATION.md) for step-by-step instructions.
 
 ---
 
-## 10. Versioning and Governance
+## 11. Versioning and Governance
 
-### 10.1 Version Control
+### 11.1 Version Control
 
 ODS follows semantic versioning (MAJOR.MINOR.PATCH):
-- **Major** (X.0.0) — breaking schema changes
-- **Minor** (1.X.0) — backward-compatible additions
-- **Patch** (1.0.X) — clarifications, no semantic change
+- **Major** (X.0.0) — breaking schema changes to core or profile
+- **Minor** (2.X.0) — backward-compatible additions (new optional core fields, new profiles, new reserved record types)
+- **Patch** (2.0.X) — clarifications, no semantic change
 
-Current version: **1.0.0**
+Current version: **2.0.0**
 
-### 10.2 Governance Process
+### 11.2 Governance Process
 
 ODS is maintained by the **ODS Foundation** through an open RFC process.
 
@@ -635,45 +761,60 @@ See [GOVERNANCE.md](./GOVERNANCE.md) for full governance model.
 
 ---
 
-## 11. Use Cases
+## 12. Use Cases
 
-### 11.1 Financial Services
+### 12.1 Financial Services
 
 **Application:** Trading decisions, credit approvals, risk management
 
-**ODS benefit:** Regulatory compliance (MiFID II, Dodd-Frank), model governance, backtesting verification, accountability for trading losses.
+**Profile:** ODS-Finance/v1
 
-### 11.2 Healthcare
+**ODS benefit:** Regulatory compliance (MiFID II, Dodd-Frank), model governance, backtesting verification, accountability for trading losses. The ODS-Finance/v1 profile provides regime detection, volatility context, and risk limit tracking required for finance-grade auditability.
+
+### 12.2 Healthcare
 
 **Application:** Treatment decisions, resource allocation, clinical trials
 
+**Profile:** ODS-Healthcare (reserved — RFC in progress)
+
 **ODS benefit:** Patient safety, clinical decision support, research reproducibility, malpractice defense.
 
-### 11.3 Supply Chain
+### 12.3 Supply Chain
 
 **Application:** Sourcing decisions, inventory management, logistics
 
+**Profile:** ODS-Supply-Chain (reserved — RFC in progress)
+
 **ODS benefit:** Disruption analysis, supplier accountability, demand forecasting improvement.
 
-### 11.4 Government
+### 12.4 Government
 
 **Application:** Policy decisions, budget allocation, infrastructure
+
+**Profile:** ODS-Government (reserved — RFC in progress)
 
 **ODS benefit:** Public accountability, evidence-based policymaking, institutional memory preservation.
 
 ---
 
-## 12. Future Directions
+## 13. Future Directions
 
-### 12.1 Planned (v1.1)
+### 13.1 Planned (v2.1)
 
 - CORRECTION record type — corrects a prior OUTCOME without modifying it
 - ANNOTATION record type — adds context without affecting metrics
 - Multi-party decision schema (committee and board decisions)
-- Privacy-preserving decision logging
+- Empirically validated DPI component weights (replaces provisional weights in §6.1)
 - Formal Merkle tree construction specification
 
-### 12.2 Research Areas
+### 13.2 Profile Development
+
+- ODS-Healthcare/v1 — pending RFC
+- ODS-Government/v1 — pending RFC
+- ODS-Supply-Chain/v1 — pending RFC
+- Conformance test suite per profile
+
+### 13.3 Research Areas
 
 - Causal inference integration
 - Cross-organizational decision benchmarking
@@ -695,6 +836,6 @@ Issues: https://github.com/ODS-Foundation/ods-specification/issues
 
 ---
 
-**Version:** 1.0.0
-**Published:** April 2026
-**Next Review:** October 2026
+**Version:** 2.0.0
+**Published:** May 2026
+**Next Review:** November 2026
