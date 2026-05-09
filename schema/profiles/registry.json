@@ -1,0 +1,36 @@
+{
+  "_note": "Machine-readable mirror of PROFILES.md registry. Consumed by validator/validate.py for reserved-namespace checks.",
+  "profiles": {
+    "ODS-Finance": {
+      "status": "authored",
+      "versions": ["v1"],
+      "schema_files": ["ods-finance-v1.json"],
+      "core_dependency": "ODS Core v2",
+      "domain": "Financial trading, credit, and risk decisions"
+    },
+    "ODS-Healthcare": {
+      "status": "reserved",
+      "domain": "Clinical treatment and resource allocation decisions"
+    },
+    "ODS-Insurance": {
+      "status": "reserved",
+      "domain": "Insurance underwriting and claims decisions"
+    },
+    "ODS-Government": {
+      "status": "reserved",
+      "domain": "Public policy and budget allocation decisions"
+    },
+    "ODS-Cybersecurity": {
+      "status": "reserved",
+      "domain": "Security incident and access decisions"
+    },
+    "ODS-Hiring": {
+      "status": "reserved",
+      "domain": "Employment and HR decisions"
+    },
+    "ODS-Supply-Chain": {
+      "status": "reserved",
+      "domain": "Sourcing, inventory, and logistics decisions"
+    }
+  }
+}

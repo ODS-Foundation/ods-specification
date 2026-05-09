@@ -117,9 +117,17 @@ Implementations:
 
 ## Version Status
 
-### v1.1.0 — Current stable release
+### v2.0.0 — Current stable release
 
-v1.1.0 is the first defensible release of ODS. Implementations SHOULD target v1.1.0.
+v2.0.0 introduces the ODS Core + Profiles architecture. The core specification is now domain-agnostic. Finance-domain fields are defined in the ODS-Finance/v1 profile. Implementations SHOULD target v2.0.0.
+
+Conformance is declared as a two-axis statement: core level + optional profile level (e.g., "ODS Core v2 Standard + ODS-Finance v1 Full").
+
+### v1.1.0 — Previous stable release
+
+v1.1.0 remains a valid release. v1.1.0 records need not be re-logged; v2.0.0 implementations SHOULD support reading both schema versions. New implementations SHOULD target v2.0.0.
+
+See [CHANGELOG.md](./CHANGELOG.md) for the migration path from v1.1.0 to v2.0.0.
 
 ### v1.0 — Deprecated
 
@@ -129,7 +137,7 @@ v1.0 contained a fundamental immutability contradiction: the specification requi
 
 There is no migration path that preserves existing v1.0 record hashes. Implementers with v1.0 systems should treat existing records as non-conformant and re-log from source data where possible.
 
-See [CHANGELOG.md](./CHANGELOG.md) for a full account of the findings and the changes made in v1.1.0.
+See [CHANGELOG.md](./CHANGELOG.md) for a full account of the findings.
 
 ### Pre-1.0 Versions
 

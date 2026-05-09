@@ -1,36 +1,59 @@
 # ODS Conformance
 
-ODS defines three conformance levels so organizations can adopt the standard at the depth that fits their needs and resources.
-
-Conformance is **structural** — it describes what an implementation captures and how, not which storage backends or programming languages are used.
+ODS v2.0 defines conformance independently for core and profile. Conformance is **structural** — it describes what an implementation captures and how, not which storage backends or programming languages are used.
 
 ---
 
-## Levels
+## Conformance Declaration Format
+
+Conformance is declared as a two-axis statement combining a core level and an optional profile level:
+
+> "ODS Core v2 Standard + ODS-Finance v1 Full"
+
+A core-only declaration is valid for governance-only implementations (no operational `action` fields, no domain profile):
+
+> "ODS Core v2 Basic"
+
+### Conformance Level Cap
+
+A profile conformance level may not exceed the core conformance level.
+
+Profile conformance levels (Standard, Full) require integrity guarantees from the underlying core — Merkle chain at Standard, full audit cryptography at Full. A profile claim of Full while core is only Basic would mean profile-level audit guarantees rest on infrastructure that does not provide them. The cap ensures conformance claims are honest about their actual integrity foundation.
+
+| Core Level | Maximum Profile Level |
+|------------|-----------------------|
+| Basic | Basic |
+| Standard | Standard |
+| Full | Full |
+
+---
+
+## Core Conformance Levels
 
 ### Basic
 
 A Basic-conformant implementation:
 
-- Writes all records using the unified ODS schema with `record_type` discriminator (`DECISION` or `OUTCOME`)
-- DECISION records include the identity, action, and cognition layers
+- Writes all records using `_schema_version: "2.0.0"` with `record_type` discriminator (`DECISION` or `OUTCOME`)
+- DECISION records include identity, cognition, and governance layers
 - DECISION records MUST NOT contain an `outcomes` field
+- DECISION records containing an `action` section MUST carry a `profile` field (E4 rule)
 - Stores records append-only — once written, never modified or deleted
 - Enforces `parent_id` referential integrity at write time: a write is rejected if the referenced `parent_id` does not exist in the store
 - Maintains an audit trail per record
 - Retains records for at least 1 year
 
-Suitable for: internal governance, early adopters, non-regulated decision flows.
+Suitable for: internal governance, early adopters, non-regulated decision flows, governance-only record stores.
 
 ### Standard
 
 A Standard-conformant implementation includes everything in Basic, plus:
 
-- Captures the context layer on DECISION records (state of the world at decision time)
+- Captures context on DECISION records (extensible container; contents determined by profile or implementation)
 - Writes OUTCOME records (`record_type: OUTCOME`) when outcomes are realized; outcomes are never written by modifying an existing DECISION record
 - Enforces the FINAL uniqueness invariant at write time: a second OUTCOME with `outcome_status: FINAL` for the same `parent_id` is rejected
 - Implements the canonical read protocol (SPECIFICATION.md Section 3.5) and exposes it via API (`GET /records/{id}/state`)
-- Verifies record integrity with SHA-256 per record using canonical JSON serialization (keys sorted, no whitespace)
+- Verifies record integrity with SHA-256 per record using RFC 8785 (JCS) canonical serialization
 - Retains records for at least 7 years
 - Supports third-party audit access to records and the canonical state API
 
@@ -52,32 +75,103 @@ Suitable for: mission-critical decision systems, organizations building institut
 
 ---
 
+## Profile Conformance
+
+Profile conformance requirements are defined in each profile's schema and documentation. The profile's conformance levels (Basic, Standard, Full) mirror the core structure but apply to profile-specific fields.
+
+### ODS-Finance/v1 Conformance
+
+| Level | Additional Requirements |
+|-------|------------------------|
+| Basic | `action_type` present; `profile: "ODS-Finance/v1"` on all operational DECISION records |
+| Standard | `regime_state` and `regime_confidence` captured on DECISION records; `risk_limit_checks` present in compliance |
+| Full | All Standard requirements; `risk_posture`, `capital_at_risk_bps`, `macro_state_vector` captured; DPI computed with `risk_alignment` dimension using ODS-Finance fields |
+
+---
+
 ## Verification
 
 ODS conformance is verifiable through three layers:
 
-1. **Schema validation** — every record validates against the JSON Schema in `schema/ods_record_v1.json`. The repository ships an executable validator at `validator/validate.py`.
+1. **Core schema validation** — every record validates against `schema/ods_record_v2.json`. The repository ships an executable validator at `validator/validate.py`.
 
-2. **Structural conformance** — the implementation's record model includes the required layers for its declared conformance level, and excludes prohibited fields (e.g., no `outcomes` field on DECISION records).
+2. **Profile schema validation** — records with a `profile` field are validated against the corresponding profile schema in `schema/profiles/`. The validator performs this as a second pass after core validation.
 
 3. **Behavioral conformance** — the following behaviors are verifiable in practice, not just at the record level:
    - Append-only writes (no record is ever modified)
    - `parent_id` referential integrity enforced at write time
    - FINAL uniqueness enforced at write time
    - Canonical read protocol produces deterministic results
+   - Profile field consistency across a decision graph (OUTCOME `profile` matches parent DECISION `profile`)
    - Retention and audit access policies met
 
 The Technical Committee will publish a formal behavioral conformance test suite as the ecosystem matures. See [ROADMAP.md](./ROADMAP.md).
 
 ---
 
+## Validator Behavior
+
+### Core Validation
+
+The validator performs core schema validation against `schema/ods_record_v2.json` for all records. Core validation checks the identity envelope, record type, and all core-defined fields.
+
+### Profile Validation
+
+When a record contains a `profile` field, the validator performs a second pass against the appropriate profile schema.
+
+**Validation flow:**
+
+1. Validate core schema. If core validation fails, stop and report errors.
+2. If `profile` field is present, perform profile validation (see below).
+3. If `--store` is provided, perform store-level invariant checks.
+
+### Missing Profile Schema
+
+When the validator encounters a record with a profile field referencing a profile schema that is not available in its local schema directory:
+
+- The validator MUST validate all core fields against the core schema.
+- The validator MUST emit an error (not a warning) for the missing profile schema, identifying the profile namespace and the local search path.
+- The validator MUST NOT silently skip profile validation. A missing profile schema is a configuration failure, not a record-level error.
+- Implementations MAY provide a `--skip-missing-profile` flag for tooling use cases (e.g., bulk inspection without full profile coverage), but this flag MUST NOT be the default behavior.
+
+### Reserved Profile Namespace
+
+When the validator encounters a `profile` field referencing a namespace with status `reserved` in the registry (`schema/profiles/registry.json`):
+
+- The validator MUST emit an error identifying the reserved namespace.
+- The validator MUST NOT proceed to profile schema validation (no schema exists for reserved namespaces).
+
+### OUTCOME Record Profile Validation
+
+OUTCOME records have a derived profile association via their parent DECISION.
+
+**Without `--store`:**
+- Core fields are validated normally.
+- If the OUTCOME carries a `profile` field, the validator performs profile validation on the OUTCOME.
+- If the OUTCOME lacks a `profile` field, the validator emits a warning: profile-specific fields in OUTCOME cannot be validated without `--store`.
+
+**With `--store`:**
+- The validator resolves the parent DECISION via `parent_id`.
+- If the OUTCOME carries an explicit `profile` field, the validator checks it matches the parent DECISION's `profile` field. A mismatch is an error.
+- If the OUTCOME lacks a `profile` field, the validator applies the parent's profile schema to the OUTCOME.
+
+---
+
+## Reserved Profile Conformance Claims
+
+Conformance claims against a profile with status `reserved` in [PROFILES.md](./PROFILES.md) are PROHIBITED. Reserved namespaces are placeholders; no profile schema exists, and no implementation may claim conformance with them.
+
+---
+
 ## Self-Declaration
 
-Organizations may self-declare conformance at Basic, Standard, or Full level by:
+Organizations may self-declare conformance at any level by:
 
 1. Implementing the requirements above
 2. Documenting their implementation in a public conformance statement
-3. Referencing ODS v1.0.0 and the conformance level claimed
+3. Referencing ODS v2.0.0, the core conformance level claimed, and (if applicable) the profile and profile conformance level claimed
+
+Example declaration: *"This implementation is ODS Core v2 Standard + ODS-Finance v1 Standard conformant."*
 
 A formal third-party certification program will follow as the standard matures.
 
@@ -96,6 +190,8 @@ Most standards fail because they demand too much, too soon. Three levels allow:
 ## See Also
 
 - [SPECIFICATION.md](./SPECIFICATION.md) — full schema, record model, and requirements
+- [PROFILES.md](./PROFILES.md) — profile registry, authoring bar, and conformance rules
 - [IMPLEMENTATION.md](./IMPLEMENTATION.md) — how to build an ODS-conformant system
-- [schema/ods_record_v1.json](./schema/ods_record_v1.json) — executable JSON Schema
+- [schema/ods_record_v2.json](./schema/ods_record_v2.json) — executable core JSON Schema
+- [schema/profiles/](./schema/profiles/) — profile JSON Schema files
 - [validator/validate.py](./validator/validate.py) — schema and store-level validator
