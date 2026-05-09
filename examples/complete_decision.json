@@ -1,8 +1,9 @@
 {
   "_schema_version": "1.0",
+  "record_type": "DECISION",
+  "record_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "timestamp_utc": "2026-04-28T14:23:45.123456+00:00",
   "identity": {
-    "decision_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "timestamp_utc": "2026-04-28T14:23:45.123456+00:00",
     "model_version": "v2.1.0",
     "policy_hash": "6b329a98be88b1f2e645de6c1de55f4911cd6925438195284df217a0770d8c5a"
   },
@@ -16,21 +17,13 @@
     "action_type": "REDUCE",
     "action_size": 0.30,
     "risk_posture": 0.45,
-    "capital_at_risk_bps": 450,
     "expected_value": 0.08
   },
   "cognition": {
-    "expected_value": 0.08,
     "confidence": 0.72,
     "uncertainty_score": 0.28,
     "decision_latency_ms": 847,
     "rationale": "Regime transition detected with 72% confidence. Volatility elevated above historical norms. Reducing exposure by 30% to preserve capital during uncertainty period. Risk-adjusted expected value remains positive."
-  },
-  "outcomes": {
-    "actual_result": 0.11,
-    "realized_at": "2026-05-15T09:00:00+00:00",
-    "delta_from_expected": 0.03,
-    "outcome_quality": 0.85
   },
   "counterfactuals": [
     {
@@ -58,15 +51,6 @@
         "metadata": {
           "trigger": "scheduled_review",
           "input_signals": ["regime_change", "volatility_spike"]
-        }
-      },
-      {
-        "timestamp_utc": "2026-05-15T09:00:00+00:00",
-        "event": "OUTCOME_LOGGED",
-        "actor": "OUTCOME_TRACKER",
-        "metadata": {
-          "source": "market_data_api",
-          "verification": "passed"
         }
       }
     ],
