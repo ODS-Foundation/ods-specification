@@ -5,9 +5,9 @@
 | **Memo ID** | DESIGN-MEMO-001 |
 | **Title** | Merkle Tree Construction Specification for ODS Batch Verification |
 | **Author** | ORPI Steward |
-| **Status** | DRAFT v2 — Pending Council Re-review |
+| **Status** | FINAL — Approved by Council 2026-05-19, implementation authorized |
 | **Created** | 2026-05-18 |
-| **Updated** | 2026-05-18 |
+| **Updated** | 2026-05-19 |
 | **Addresses** | Audit Finding #5 — Merkle Tree Underspecification |
 | **Affects** | SPECIFICATION.md, CONFORMANCE.md, VERSIONING.md |
 | **Path** | Design Memo → Council Review → Amendments → Final Memo → Authorization → Implementation → Pre-merge Review → Ship |
@@ -18,6 +18,7 @@
 |---------|------|---------|
 | v1 | 2026-05-18 | Initial draft — adopted RFC 6962 construction; proposed timestamp-based canonical ordering; raised O-1 through O-5 as open questions |
 | v2 | 2026-05-18 | **Critical structural fix:** timestamp ordering removed and replaced with store-assigned sequence_number (see §5). All five open questions resolved by Council directive. §10.5 inconsistency resolved. Signed CHECKPOINT deferred to DESIGN-MEMO-002. |
+| FINAL | 2026-05-19 | Council re-review passed; no further amendments; implementation authorized. |
 
 ---
 
@@ -516,5 +517,5 @@ All five open questions from v1 are resolved. No open questions remain in this m
 
 ---
 
-*Status: DRAFT v2 — Pending Council Re-review*
-*Next step: Council reviews v2; if no further amendments required, authorizes as Final Memo and opens implementation*
+*Status: FINAL — Approved by Council 2026-05-19, implementation authorized*
+*Implementation in progress on branch rfc/merkle-DESIGN-MEMO-001.*
