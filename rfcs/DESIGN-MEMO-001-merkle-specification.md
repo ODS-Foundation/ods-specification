@@ -5,11 +5,19 @@
 | **Memo ID** | DESIGN-MEMO-001 |
 | **Title** | Merkle Tree Construction Specification for ODS Batch Verification |
 | **Author** | ORPI Steward |
-| **Status** | DRAFT — Pending Council Review |
+| **Status** | DRAFT v2 — Pending Council Re-review |
 | **Created** | 2026-05-18 |
+| **Updated** | 2026-05-18 |
 | **Addresses** | Audit Finding #5 — Merkle Tree Underspecification |
 | **Affects** | SPECIFICATION.md, CONFORMANCE.md, VERSIONING.md |
 | **Path** | Design Memo → Council Review → Amendments → Final Memo → Authorization → Implementation → Pre-merge Review → Ship |
+
+### Amendment History
+
+| Version | Date | Summary |
+|---------|------|---------|
+| v1 | 2026-05-18 | Initial draft — adopted RFC 6962 construction; proposed timestamp-based canonical ordering; raised O-1 through O-5 as open questions |
+| v2 | 2026-05-18 | **Critical structural fix:** timestamp ordering removed and replaced with store-assigned sequence_number (see §5). All five open questions resolved by Council directive. §10.5 inconsistency resolved. Signed CHECKPOINT deferred to DESIGN-MEMO-002. |
 
 ---
 
@@ -26,6 +34,10 @@ The phrase "Merkle tree or equivalent" (appearing in the cap-justification text 
 2. **The conformance cap claim is hollow.** CONFORMANCE.md states "Merkle chain at Standard" as a justification for the profile conformance cap. A requirement that is not specified cannot be evaluated; an audit against that requirement cannot be passed or failed.
 
 This audit finding disqualifies ODS from serious cryptographic audit until resolved.
+
+### 1.1 Additional Structural Flaw Identified in v1 Council Review
+
+The v1 draft (2026-05-18) proposed ordering records by `timestamp_utc` (client-supplied). Council review identified that this creates a fundamental incompatibility with RFC 6962 consistency proofs (§2.1.2): client-supplied timestamps allow backdated records to be inserted at arbitrary positions within an already-checkpointed tree, breaking the prefix-extension property that consistency proofs require mathematically. This flaw is corrected in §5 of this version. The correction materially strengthens the security model and has implications for versioning analysis (§9) and the stored record schema (§3).
 
 ---
 
@@ -49,29 +61,32 @@ The following sections specify exactly how RFC 6962 §2.1 maps onto ODS records.
 
 **Normative reference:** RFC 6962 §2.1, leaf hash definition.
 
-Each ODS record maps to exactly one Merkle leaf. The leaf hash is:
+Each Merkle-eligible ODS record (see §5.4 for eligibility definition) maps to exactly one Merkle leaf. The leaf hash is:
 
 ```
-leaf_hash = SHA-256(0x00 || UTF-8(JCS(record)))
+leaf_hash = SHA-256(0x00 || UTF-8(JCS(stored_record)))
 ```
 
 Where:
 - `0x00` is the single-byte domain separation prefix specified in RFC 6962 §2.1
-- `JCS(record)` is the RFC 8785 (JCS) canonical JSON serialization of the complete record object as written to the store — every field present in the stored record, in JCS canonical key order
+- `JCS(stored_record)` is the RFC 8785 (JCS) canonical JSON serialization of the **stored representation** of the record — the complete record object as returned by `GET /records/{id}`, including the store-assigned `sequence_number` field (see §5.3)
 - `UTF-8(...)` is the byte encoding of the JCS output string (JCS output is always valid UTF-8)
 - `SHA-256(...)` is the standard 32-byte SHA-256 digest
 
-**Rationale for hashing the complete record:**
+**Critical distinction — stored representation vs. submitted payload:** Clients submit records without a `sequence_number` field. The store adds `sequence_number` at write time before persisting. The leaf hash is computed over the stored representation (which includes `sequence_number`), not the client-submitted payload. An auditor computing a leaf hash MUST fetch the record from the store and use the stored representation exactly as returned.
+
+**Rationale for hashing the complete stored record:**
 - Consistent with how ODS already uses `SHA-256(JCS(policy_object))` for `policy_hash` in the identity envelope — JCS is the canonical serialization for all ODS hashing
-- Binds every field of the record to its leaf position, including `_schema_version`, `record_type`, `record_id`, and `timestamp_utc`; no field can be altered without invalidating the leaf and thus the root
+- Including `sequence_number` in the hashed content binds each record to its position in the log; an attacker cannot reorder records without changing leaf hashes and thus the tree root
+- Binds every field of the record to its leaf, including `_schema_version`, `record_type`, `record_id`, and `timestamp_utc`; no field can be altered without invalidating the leaf and thus the root
 - Simple and deterministic: any conformant implementation already has a JCS library
 
 **What is NOT hashed as the leaf pre-image:**
 - Only `record_id` (insufficient binding — content can change while ID remains fixed)
 - Only selected fields (selective binding creates audit gaps)
-- A separately computed record fingerprint (double-hashing without added security)
+- `sequence_number` encoded as raw bytes outside the JCS representation (inconsistent with the JCS-for-everything approach; complexity without benefit)
 
-The complete `JCS(record)` is the leaf data. No abbreviation.
+The complete `JCS(stored_record)` is the leaf data. No abbreviation.
 
 ---
 
@@ -96,22 +111,77 @@ This construction is identical to the Certificate Transparency log hash function
 
 ## 5. Canonical Ordering
 
-Canonical ordering determines which record occupies which leaf index. It must be **deterministic and derivable solely from record content**, so that two independent implementations reading the same store always build the same tree.
+### 5.1 Why timestamp_utc Ordering Is Incompatible with Consistency Proofs
 
-**Proposed canonical ordering:**
+The v1 draft proposed ordering by `timestamp_utc` (client-supplied). This ordering is **incompatible with RFC 6962 consistency proofs** (§2.1.2) and must be rejected.
+
+The incompatibility is structural, not incidental:
+
+RFC 6962 consistency proofs (§2.1.2) prove that a tree `T₂` (tree_size=m) is a **prefix extension** of an earlier tree `T₁` (tree_size=n, n < m): the first n leaves of T₂ are identical to the n leaves of T₁, and T₂ simply appends m-n new leaves at the right. This property holds if and only if the canonical ordering is **monotonically assigned by the log at write time**, so that no new record can ever be inserted at a position less than the current tree_size.
+
+`timestamp_utc` is client-supplied and therefore not monotonic at the log level. A record submitted at wall-clock time T₂ may carry `timestamp_utc` of T₁ (clock skew, bulk import, retrospective logging). Under timestamp ordering, this backdated record would be assigned a canonical position before records already included in a prior CHECKPOINT. The result:
+
+- **The prefix-extension property is violated.** Leaves at positions [backdated_position, old_tree_size-1] in T₂ differ from the same positions in T₁, because the backdated record was inserted mid-tree.
+- **Consistency proofs fail for non-tampered stores.** A verifier applying the RFC 6962 §2.1.2 algorithm would conclude the store was tampered with, when it was not.
+- **Tamper detection becomes unreliable.** Because legitimate operations can produce consistency proof failures, genuine tampering cannot be distinguished from legitimate backdated inserts.
+
+Certificate Transparency resolves this by assigning positions from a server-controlled, monotonically incrementing log index — not from certificate validity times, which are client-supplied and arbitrary. ODS must do the same.
+
+### 5.2 Sequence-Number Ordering
+
+**Canonical ordering for Merkle leaves is by `sequence_number` ascending.**
 
 ```
-Primary:   timestamp_utc  ASCENDING  (ISO 8601 lexicographic; microsecond precision makes this a numeric sort)
-Secondary: record_id      ASCENDING  (lexicographic on UUID string representation)
+sequence_number  ASCENDING  (integer, store-assigned, monotonically increasing, gapless)
 ```
 
-**Rationale:**
+`sequence_number` is a unique, monotonically increasing integer assigned by the store to each Merkle-eligible record at write time, beginning at 1. There are no gaps. The record with `sequence_number: n+1` was always written after the record with `sequence_number: n`.
 
-- `timestamp_utc` ascending is the natural append-order proxy. Records appear in temporal sequence in the tree, matching the semantic model of an append-only log.
-- `record_id` as a tiebreaker eliminates ambiguity when two records share an identical `timestamp_utc`. UUID v4 lexicographic order is defined and consistent across all implementations. The sort key is the UUID string as written in the JSON field (e.g., `"78ca73b1-a4fd-46a5-855a-770af55091c9"`), not a binary encoding.
-- Both sort keys are present in every ODS record as required fields — no implementation can claim a record without them.
+Under this ordering:
+- Every new record is appended at the right of the current leaf sequence
+- No record can ever be inserted at a position before an already-checkpointed record
+- RFC 6962 §2.1.2 consistency proofs are mathematically valid at all times
+- The Merkle log has the same structural guarantees as a Certificate Transparency log
 
-**Clock-skew consideration (open question O-1):** Bulk imports or records generated from systems with clock skew may arrive out of `timestamp_utc` order relative to their store insertion order. Under the proposed canonical ordering, such records will sort by their claimed timestamp regardless of when they were inserted. This is the correct audit behavior (the tree reflects what was decided and when, not when the record was written to the store). Council should confirm this is the intended semantics or redirect to a store-sequence-number model if a future store API guarantees monotonic sequence numbers.
+**Tiebreaking is not needed.** `sequence_number` values are unique by construction; there can be no ties.
+
+### 5.3 sequence_number: Storage, Assignment, and Non-Falsifiability
+
+**Assignment:** `sequence_number` is assigned exclusively by the store. Clients MUST NOT include `sequence_number` in submitted record payloads. A store receiving a submitted record that contains a `sequence_number` field MUST reject the write with an appropriate error.
+
+**Storage:** The store adds `sequence_number` to the record JSON before persisting it. The stored representation — as returned by `GET /records/{id}` — always includes `sequence_number` for Merkle-eligible records. This is the representation used for leaf hash computation (§3).
+
+**Non-falsifiability:** Because `sequence_number` is store-assigned and rejected when client-submitted, clients cannot control their record's position in the Merkle log. A record's leaf position is determined entirely by the store's write-time assignment. This is the same non-falsifiability property that CT log operators provide.
+
+**Schema position:** `sequence_number` is a top-level field in the stored record JSON, at the same level as `_schema_version`, `record_type`, and `record_id`. Its JCS key sort position (between `"record_id"` and `"record_type"` alphabetically) is determined by RFC 8785 key ordering and requires no special handling.
+
+**Stored record example (DECISION, v2.1.0 store):**
+
+```json
+{
+  "_schema_version": "2.1.0",
+  "cognition": { "..." : "..." },
+  "counterfactuals": [],
+  "governance": { "..." : "..." },
+  "identity": { "..." : "..." },
+  "record_id": "<uuid-v4>",
+  "record_type": "DECISION",
+  "sequence_number": 42,
+  "timestamp_utc": "<iso-8601-microseconds>"
+}
+```
+
+*(Fields shown in JCS canonical key order — alphabetical, as RFC 8785 requires.)*
+
+### 5.4 Merkle Log Genesis and v2.0 Record Exclusion
+
+**v2.0 records do not participate in the v2.1.0 Merkle log.**
+
+When an existing v2.0 store is upgraded to v2.1.0, pre-existing records (those written before the upgrade) have no `sequence_number` and are excluded from the Merkle log. The Merkle sequence begins with `sequence_number: 1` assigned to the first record written after the upgrade. Pre-existing records remain fully readable and are verified by per-record SHA-256 (the v2.0 Standard requirement), but they do not appear as leaves in any Merkle tree.
+
+New v2.1.0 stores begin with `sequence_number: 1` from first write.
+
+**Rationale for this boundary:** Retroactively assigning sequence numbers to v2.0 records would require modifying their stored representation (adding `sequence_number`), which violates ODS immutability. The clean forward boundary preserves record immutability unconditionally, and is the condition under which v2.1.0 remains a minor version rather than a major version (see §9).
 
 ---
 
@@ -132,7 +202,7 @@ Per RFC 6962 §2.1: "The hash of an empty list is the hash of an empty string."
 ### 6.2 Single Record
 
 ```
-MTH({d(0)}) = SHA-256(0x00 || UTF-8(JCS(d(0))))
+MTH({d(0)}) = SHA-256(0x00 || UTF-8(JCS(stored_record_0)))
 ```
 
 A tree containing exactly one record reduces to that record's leaf hash. There is no internal node. The root equals the leaf.
@@ -170,9 +240,11 @@ The ODS store is immutable and append-only. A Merkle root cannot be stored by mo
 
 ODS adopts the conceptual structure of the Certificate Transparency **Signed Tree Head (STH)** (RFC 6962 §3.5) as the basis for root storage, adapted to the ODS append-only record model.
 
-A new `record_type` value `CHECKPOINT` is introduced. A CHECKPOINT record is an ODS record that attests to the Merkle root of a specific prefix of the store.
+A new `record_type` value `CHECKPOINT` is introduced. A CHECKPOINT record is an ODS record that attests to the Merkle root of a specific prefix of the store's Merkle log.
 
-**CHECKPOINT records are subject to the same immutability rules as all ODS records.** They are included as leaves in subsequent Merkle trees (i.e., future CHECKPOINTs cover the records preceding them, including prior CHECKPOINTs). They are NOT included in the tree they themselves describe — that would be circular, since the root is not known until the tree is computed.
+**CHECKPOINT records are subject to the same immutability rules as all ODS records.** They are assigned `sequence_number` values by the store and are included as leaves in subsequent Merkle trees (i.e., future CHECKPOINTs cover the records preceding them, including prior CHECKPOINTs). They are NOT included in the tree they themselves describe — that would be circular, since the root is not known until the tree is computed.
+
+**Rationale for the inclusive approach (O-4, resolved):** Including CHECKPOINT records as leaves in subsequent trees provides full cryptographic binding across the checkpoint chain. A CHECKPOINT that is not itself committed as a leaf in a later tree could be silently replaced by a different CHECKPOINT over the same record set (e.g., a CHECKPOINT with a doctored root hash), and no subsequent tree would detect the substitution. The inclusive approach forecloses this attack vector. The alternative — treating CHECKPOINTs as pure metadata excluded from all trees — reduces cryptographic binding without any implementation benefit, and is therefore rejected.
 
 ### 7.3 CHECKPOINT Record Schema
 
@@ -181,6 +253,7 @@ A new `record_type` value `CHECKPOINT` is introduced. A CHECKPOINT record is an 
   "_schema_version": "2.1.0",
   "record_type": "CHECKPOINT",
   "record_id": "<uuid-v4>",
+  "sequence_number": 43,
   "timestamp_utc": "<iso-8601-microseconds>",
   "identity": {
     "model_version": "<string>",
@@ -189,36 +262,47 @@ A new `record_type` value `CHECKPOINT` is introduced. A CHECKPOINT record is an 
   "checkpoint": {
     "tree_size": 42,
     "tree_root": "<sha256-hex-64-chars>",
-    "covers_through_record_id": "<uuid-of-last-included-record>",
-    "ordering": "timestamp_utc ASC, record_id ASC"
+    "covers_through_sequence_number": 42,
+    "ordering": "sequence_number ASC"
   }
 }
 ```
 
 **Field semantics:**
 
-- `checkpoint.tree_size` — the number of records included as leaves in this tree (all record types, including prior CHECKPOINTs, ordered canonically)
+- `sequence_number` — store-assigned sequence number for this CHECKPOINT record itself (it is a record in the store and receives a sequence number like any other); note that `sequence_number` (43 in the example) is strictly greater than `checkpoint.covers_through_sequence_number` (42), because the CHECKPOINT is written after the tree it describes
+- `checkpoint.tree_size` — the number of records included as leaves in this tree
 - `checkpoint.tree_root` — the 64-character lowercase hex encoding of the 32-byte SHA-256 Merkle root
-- `checkpoint.covers_through_record_id` — the `record_id` of the last record included in this tree by canonical ordering; unambiguously defines the covered set without requiring the verifier to know the full ordering in advance
-- `checkpoint.ordering` — the literal string `"timestamp_utc ASC, record_id ASC"` for v2.1.0; reserved for future ordering strategies
+- `checkpoint.covers_through_sequence_number` — the `sequence_number` of the last record included in this tree; equals `tree_size` when the Merkle log is gapless from sequence_number 1
+- `checkpoint.ordering` — the literal string `"sequence_number ASC"` for v2.1.0; reserved for future ordering strategies
 
-**What the CHECKPOINT record does NOT include:** a cryptographic signature over the root (unlike CT's STH). ODS does not mandate a signing key infrastructure in the core spec. If an implementation wishes to sign CHECKPOINTs, it may do so in the `governance` envelope using existing ODS extension patterns. A signing profile can be specified in a future RFC.
+### 7.3.1 Security Limitation: Tamper-Evidence Without Attribution
+
+**Unsigned CHECKPOINTs, as specified in v2.1.0, provide tamper-evidence but NOT tamper-proof attribution.**
+
+- **Tamper-evidence:** Any modification to the content or ordering of included records, after a CHECKPOINT is emitted, changes the tree root. Recomputing the Merkle root from the stored records will produce a value that does not match `checkpoint.tree_root`, and verification fails. The modification is detected.
+
+- **What is NOT provided:** Without a cryptographic signature from a key controlled by the store operator, it cannot be proven (a) who generated a given CHECKPOINT, or (b) that an adversary with write access has not replaced a legitimate CHECKPOINT with a different CHECKPOINT they computed over a tampered record set. Unsigned CHECKPOINTs do not prevent an adversary who can both modify records and append new records from constructing a self-consistent but fraudulent state.
+
+This is the same architectural position as other provisional integrity mechanisms in the ODS security model: tamper-evidence for operational monitoring and audit, attribution and non-repudiation deferred to a higher tier. Signed CHECKPOINTs (including key management, signing procedure, and signature verification) are scoped to a future DESIGN-MEMO-002 and will be a Full-level conformance requirement.
 
 ### 7.4 CHECKPOINT Emission Cadence
 
 Implementations MUST emit at least one CHECKPOINT:
-- After every 1,000 records appended to the store, OR
-- After every 24 hours of operation, whichever comes first
+- After every 1,000 Merkle-eligible records appended to the store, OR
+- After every 24 hours of operation during which at least one Merkle-eligible record was written, whichever comes first
 
 Implementations MAY emit CHECKPOINTs more frequently. Auditors may request on-demand CHECKPOINTs via the API.
 
 The cadence is a conformance floor, not a ceiling. Mission-critical implementations are expected to checkpoint more aggressively.
 
-### 7.5 Relationship to Existing Reserved Types
+### 7.5 Relationship to Existing Record Types
 
-CHECKPOINT is proposed for addition to the **active** record types table (alongside DECISION and OUTCOME), not the reserved/planned table. It is functional from v2.1.0. CORRECTION and ANNOTATION remain in the reserved/planned table (planned for a future 2.x release) — this memo does not change their status.
+**Council decision (O-2, resolved):** CHECKPOINT is added directly to the **active** record types table in v2.1.0, alongside DECISION and OUTCOME. It does not go through the reserved/planned staging that semantic record types (CORRECTION, ANNOTATION) follow.
 
-**Council decision required (open question O-2):** Should CHECKPOINT be added to the active types table in v2.1.0, or should it first go through the reserved/planned staging? Given that CHECKPOINT is a cryptographic infrastructure record (not a domain semantic record), the Council may prefer to treat it as an infrastructure primitive and authorize it immediately rather than staging it.
+Rationale: the reserved/planned staging path exists for **domain-semantic record types** whose field semantics, relationships to other record types, and DPI/CFR metric interactions require deliberate design and ecosystem feedback before activation. CHECKPOINT is a **cryptographic infrastructure primitive** — its sole function is to attest to a Merkle root at a point in time. It has no semantic relationship to decisions or outcomes, does not affect DPI/CFR computation, and its schema is mechanically determined by the Merkle construction spec. Staging it would defer Merkle conformance with no design benefit.
+
+CORRECTION and ANNOTATION remain in the reserved/planned table and are unaffected by this decision.
 
 ---
 
@@ -254,7 +338,7 @@ If `checkpoint` is omitted, the server returns a proof against the most recent C
 
 **Field semantics:**
 
-- `leaf_index` — the zero-based position of the record in the canonical ordering (0 = first record in tree)
+- `leaf_index` — the zero-based position of the record in the canonical ordering (= `sequence_number - 1`, since sequence_numbers begin at 1 and leaf indices begin at 0)
 - `tree_size` — total number of leaves in the tree; must match `checkpoint.tree_size`
 - `audit_path` — ordered list of SHA-256 hashes constituting the audit path per RFC 6962 §2.1.1
 
@@ -262,24 +346,29 @@ If `checkpoint` is omitted, the server returns a proof against the most recent C
 
 A verifier receiving an inclusion proof MUST:
 
-1. Fetch the record identified by `record_id`
-2. Compute `leaf_hash = SHA-256(0x00 || UTF-8(JCS(record)))`
+1. Fetch the stored record identified by `record_id` from `GET /records/{record_id}`
+2. Compute `leaf_hash = SHA-256(0x00 || UTF-8(JCS(stored_record)))` — the stored record as returned by the API, which includes the store-assigned `sequence_number` field
 3. Fetch the CHECKPOINT record identified by `checkpoint_record_id`; extract `tree_root`
-4. Starting from `leaf_hash` at position `leaf_index` in a tree of `tree_size` leaves, apply the RFC 6962 §2.1.1 path-following algorithm:
+4. Confirm `leaf_index = stored_record.sequence_number - 1` and `tree_size = checkpoint.tree_size`
+5. Starting from `leaf_hash` at position `leaf_index` in a tree of `tree_size` leaves, apply the RFC 6962 §2.1.1 path-following algorithm:
    - At each step, determine whether the current node is a left or right child from `leaf_index` and the current subtree size
    - Combine using `SHA-256(0x01 || left || right)`
-5. Compare the computed root with `tree_root` from the CHECKPOINT record
-6. Accept the proof if and only if the roots match
+6. Compare the computed root with `tree_root` from the CHECKPOINT record
+7. Accept the proof if and only if the roots match
 
-### 8.4 Consistency Proofs (Informational)
+### 8.4 Consistency Proofs
 
-RFC 6962 §2.1.2 defines **consistency proofs** that demonstrate a newer tree is a prefix extension of an older tree (i.e., no records were deleted or reordered between checkpoints). ODS implementations MAY implement:
+**Normative reference:** RFC 6962 §2.1.2, Merkle Consistency Proofs.
+
+Consistency proofs are **valid and well-defined** under sequence_number ordering because the Merkle log is append-only by construction (§5.1–5.2). A consistency proof between CHECKPOINT C₁ (tree_size=n) and CHECKPOINT C₂ (tree_size=m, m > n) proves that the first n leaves of C₂'s tree are identical to the n leaves of C₁'s tree — i.e., no previously-checkpointed record was modified, deleted, or reordered.
+
+ODS implementations MAY implement:
 
 ```
 GET /checkpoints/{new_checkpoint_id}/consistency?from={old_checkpoint_id}
 ```
 
-Consistency proofs are not required for Standard or Full conformance in v2.1.0 but are RECOMMENDED for Full-conformant implementations as part of continuous audit support. A future RFC may elevate this to a requirement.
+Consistency proofs are RECOMMENDED for Full-conformant implementations as part of continuous audit support. A future RFC may elevate this to a Full-level requirement. They are not required for Standard conformance in v2.1.0.
 
 ---
 
@@ -289,30 +378,36 @@ Consistency proofs are not required for Standard or Full conformance in v2.1.0 b
 
 | Change | Type |
 |--------|------|
+| New store-assigned field `sequence_number` in v2.1.0+ stored records | Additive (store-assigned; not a client schema change) |
 | New `CHECKPOINT` record_type with `checkpoint` field block | Additive |
 | New Merkle construction spec (leaf hash, node hash, split rule) | New verification mechanism |
 | New API endpoint `GET /records/{id}/proof` | Additive |
-| Tightening of Standard conformance to require Merkle computation | Conformance tightening |
+| Tightening of Standard conformance to require Merkle computation | Conformance tightening (clarification of stated intent) |
 | Resolution of SPECIFICATION.md §10 placeholder text | Clarification |
 
-### 9.2 The Semver Question: v2.1.0 or v3.0.0
+### 9.2 The SemVer Question: v2.1.0 or v3.0.0
+
+**Council preliminary position: v2.1.0.** This section argues the position explicitly, as directed.
 
 **Argument for v3.0.0 (major):**
-Adding Merkle as a requirement at Standard changes the definition of Standard conformance. An implementation currently claiming Standard must now implement Merkle computation and CHECKPOINT emission to retain that claim. This is a new mandatory capability.
+Adding Merkle as a requirement at Standard changes the definition of Standard conformance. An implementation currently claiming Standard must now implement sequence_number assignment, Merkle computation, and CHECKPOINT emission to retain that claim. `sequence_number` is a new field in stored record representations.
 
-**Argument for v2.1.0 (minor):**
-1. No existing record is invalidated. DECISION and OUTCOME records with `_schema_version: "2.0.0"` remain valid and complete. Nothing about their schemas, semantics, or required fields changes.
-2. VERSIONING.md §MINOR explicitly lists "New conformance options" and "New verification mechanisms" as minor-bump triggers.
-3. VERSIONING.md §MINOR states: "Clarifications that strengthen the spec without breaking existing records." Specifying the Merkle construction that was always intended (the spec text says "pending RFC") is precisely this kind of clarification.
-4. The SPECIFICATION.md itself flags the Merkle spec as pending RFC — the ecosystem expects a 2.x clarification, not a breaking 3.0 revision.
-5. CHECKPOINT is a new, optional record type. A v2.0 implementation encountering a v2.1.0 CHECKPOINT in the store will emit a warning (per VERSIONING.md: "SHOULD accept records with newer minor versions") but will not fail to read DECISION/OUTCOME records.
-6. The profile conformance cap rationale in CONFORMANCE.md already cites "Merkle chain at Standard" — this resolution makes the spec self-consistent; it does not introduce a semantic shift.
+**Argument for v2.1.0 (minor) — explicit construction:**
 
-**Council-recommended position: v2.1.0.**
+The VERSIONING.md major version triggers are:
+1. Removing or renaming required schema fields — **not triggered**: no existing field is removed or renamed
+2. Changing the type or constraints of a required field in incompatible ways — **not triggered**: no existing field changes type or constraints
+3. Removing a previously declared conformance level — **not triggered**: Basic, Standard, and Full all remain
+4. Changing fundamental semantics that would invalidate existing records — **not triggered** (see below)
 
-The decisive factor is that no existing record schema changes and no existing valid record is invalidated. The CHECKPOINT type is purely additive. The Merkle construction spec clarifies what was explicitly flagged as pending, not what was previously stable and complete. A v3.0.0 bump would overstate the disruption and impose unnecessary migration overhead on early adopters.
+**Do existing v2.0 records become invalid?** No, under the condition the Council specified: v2.0 records do not participate in the v2.1.0 Merkle log. A v2.0 DECISION record written today remains a valid, readable, SHA-256-verifiable record under v2.1.0. Its JSON is never touched. Its `_schema_version: "2.0.0"` remains accurate. The Merkle log is a new layer that begins at a forward boundary — it does not retroactively invalidate or require modification of anything written before that boundary.
 
-**Conformance grace period:** Regardless of version, implementations currently claiming Standard conformance without Merkle support should be given a 90-day grace period from the v2.1.0 release date to add CHECKPOINT emission and inclusion proof support before their Standard claim becomes non-conformant.
+**Does `sequence_number` constitute a breaking schema change?** `sequence_number` is store-assigned, not client-specified. Clients continue to submit records in exactly the same format as v2.0. The API contract for record submission is unchanged. Only the store's internal write protocol and the stored representation change, which is an implementation concern, not a schema-breaking change for record authors. A v2.0 reader encountering a stored record with a `sequence_number` field will encounter an unknown field and should (per forward-compatibility convention) ignore it rather than fail.
+
+**What makes this definitively minor and not a judgment call:**
+The SPECIFICATION.md already flagged Merkle as "pending RFC." The conformance text already stated "Merkle chain at Standard" in the cap rationale. The Merkle requirement was never absent from the spec's intent — it was absent from the spec's text. Resolving a documented placeholder is not a semantic shift; it is the completion of an explicitly incomplete specification. The ecosystem was warned that this RFC was coming.
+
+**Conclusion: v2.1.0.** The decisive conditions are: (a) no v2.0 record is invalidated, (b) no existing required field changes, (c) the change is the resolution of a documented placeholder, and (d) `sequence_number` is store-assigned and transparent to record authors.
 
 ---
 
@@ -326,55 +421,60 @@ Current Standard requirements include:
 > "Verifies record integrity with SHA-256 per record using RFC 8785 (JCS) canonical serialization"
 
 Proposed additions to Standard:
-- Computes Merkle trees per RFC 6962 §2.1 using the leaf and node construction specified in DESIGN-MEMO-001 (canonicalized in SPECIFICATION.md §X upon acceptance)
-- Emits CHECKPOINT records at minimum every 1,000 records or 24 hours
+- Assigns monotonically increasing `sequence_number` to each record at write time; rejects client-submitted records that include a `sequence_number` field
+- Computes Merkle trees per RFC 6962 §2.1 using the leaf and node construction specified in this memo (canonicalized in SPECIFICATION.md §X upon acceptance), ordering by `sequence_number ASC`
+- Emits CHECKPOINT records at minimum every 1,000 Merkle-eligible records or every 24 hours of operation with at least one write, whichever comes first
 - Exposes inclusion proof API: `GET /records/{id}/proof`
-- Verifies inclusion proofs against CHECKPOINT roots
+- Verifies inclusion proofs against CHECKPOINT roots on auditor request
 
 ### 10.2 Full Level (Revised)
 
-Current Full requirements do not explicitly mention Merkle (inconsistent with SPECIFICATION.md §10 which assigns Merkle to Full). This inconsistency is resolved as follows:
+Current Full requirements do not explicitly mention Merkle (inconsistent with SPECIFICATION.md §10 which assigns Merkle to Full). This inconsistency is resolved by §10.5. Full builds on Standard and adds:
 
 Proposed additions to Full (above Standard):
 - Implements consistency proof generation (RFC 6962 §2.1.2) between any two sequential CHECKPOINTs
 - Exposes consistency proof API: `GET /checkpoints/{new_id}/consistency?from={old_id}`
 - Verifies consistency proofs on receipt of new CHECKPOINTs
 - Supports real-time Merkle verification on record ingest (not just at checkpoint intervals)
+- Signed CHECKPOINTs (key management, signing procedure, and verification): deferred to DESIGN-MEMO-002
 
 ### 10.3 Basic Level
 
-No change. Basic implementations are not required to compute Merkle trees.
+No change. Basic implementations are not required to compute Merkle trees or assign sequence numbers.
 
 ### 10.4 Profile Conformance Cap
 
-The cap rationale in CONFORMANCE.md ("Merkle chain at Standard, full audit cryptography at Full") becomes accurate and substantiated once Standard is updated as above. No change to the cap rule itself is needed; the underlying requirements now match the stated justification.
+The cap rationale in CONFORMANCE.md ("Merkle chain at Standard, full audit cryptography at Full") is accurate and substantiated once Standard is updated as above. No change to the cap rule itself is needed; the underlying requirements now match the stated justification.
 
-### 10.5 Existing Inconsistency to Resolve
+### 10.5 Inconsistency Resolution: Merkle at Standard
 
-There is a current inconsistency between:
+**Resolved.** There was a contradiction between:
 - SPECIFICATION.md §10: "Merkle tree batch verification is required at **Full** conformance"
 - CONFORMANCE.md cap rationale: "Merkle chain at **Standard**"
 
-The Council must decide which position is normative. This memo recommends **Merkle at Standard** (consistent with the CONFORMANCE.md cap text), which means SPECIFICATION.md §10 requires correction. If the Council prefers Merkle at Full, the CONFORMANCE.md cap rationale requires correction instead. Both documents cannot stand as written.
+**Council decision: Merkle at Standard is normative.** SPECIFICATION.md §10 will be corrected to "Standard" during the implementation step.
+
+Rationale: per-record SHA-256 hashing without Merkle provides per-record integrity (each record's hash can be verified in isolation) but does not provide **log-level tamper-evidence**. An attacker who can write to a store could delete records, reorder records, or insert fabricated records, and per-record SHA-256 would not detect any of these attacks — each surviving record would still verify against its own hash. Merkle trees close this gap: the root commits to the entire ordered set of records, and any deletion, insertion, or reordering changes the root. "Standard" must genuinely mean audit-grade. Audit-grade requires log-level tamper-evidence. Therefore Merkle is a Standard requirement.
+
+### 10.6 Grace Period
+
+Implementations currently claiming Standard conformance without Merkle support are given a **90-day grace period** from the v2.1.0 release date to add sequence_number assignment, CHECKPOINT emission, and inclusion proof support before their Standard claim becomes non-conformant.
+
+**Honesty note:** As of v2.1.0, there are no known external implementers. The grace period is precautionary and formalizes the transition norm for the record. It ensures that if an external implementer appears between now and the v2.1.0 ship date, they have a documented migration window rather than an abrupt conformance break.
 
 ---
 
-## 11. Open Questions for Council Review
+## 11. Council Decisions Recorded
 
-**O-1 — Canonical ordering: timestamp-based vs. sequence-number-based**
-The proposed ordering (`timestamp_utc ASC, record_id ASC`) is derivable from record content alone and requires no external store metadata. An alternative is to require stores to assign monotonic sequence numbers to records at write time and order by sequence number. The sequence-number approach is simpler but requires the store API to expose sequence numbers — adding an infrastructure requirement not present in v2.0. Council should confirm the timestamp-based ordering is acceptable given its clock-skew implications, or authorize a store sequence-number requirement.
+All five open questions from v1 are resolved. No open questions remain in this memo.
 
-**O-2 — CHECKPOINT as active type vs. reserved/planned staging**
-Should CHECKPOINT be added directly to the active record types in v2.1.0, or first to the reserved/planned table? Argument for direct active: it is an infrastructure primitive required for conformance. Argument for staging: preserves the pattern that new semantic types go through reserved staging. Council call.
-
-**O-3 — CHECKPOINT signing**
-RFC 6962 §3.5 STHs are signed by the log's private key. ODS v2.1.0 CHECKPOINTs are not signed (no signing key infrastructure is mandated in core). Is unsigned CHECKPOINT sufficient for the audit use case, or should v2.1.0 mandate a signing key and include a `checkpoint.signature` field? If signatures are required, the key management architecture must also be specified.
-
-**O-4 — CHECKPOINT records in their own tree**
-This memo proposes that CHECKPOINT records are included as leaves in subsequent trees (not in the tree they describe). An alternative is to exclude CHECKPOINT records from all Merkle trees and treat them as pure metadata. Exclusion simplifies tree construction (the tree only covers DECISION/OUTCOME records) but reduces the cryptographic binding (a CHECKPOINT itself could be replaced without being detected by subsequent trees). Council should confirm the inclusive approach.
-
-**O-5 — Grace period duration**
-The memo proposes 90 days for existing Standard-claiming implementations to add Merkle support. Is this sufficient? Are there known implementers whose timelines should inform this window?
+| ID | Question | Decision | Rationale Summary |
+|----|----------|----------|-------------------|
+| O-1 | Canonical ordering: timestamp vs. sequence_number | **Sequence_number, mandatory** | Timestamp ordering is structurally incompatible with RFC 6962 consistency proofs; see §5.1 |
+| O-2 | CHECKPOINT: active type vs. reserved/planned staging | **Active type direct in v2.1.0** | Infrastructure primitive, not a domain-semantic type; staging provides no design benefit |
+| O-3 | CHECKPOINT signing | **Unsigned OK for v2.1.0 Standard; signing deferred to DESIGN-MEMO-002 for Full** | Same pattern as other provisional integrity mechanisms; security limitation explicitly stated in §7.3.1 |
+| O-4 | CHECKPOINT records included in subsequent trees | **Inclusive approach confirmed** | Exclusive approach would allow silent replacement of CHECKPOINTs; see §7.2 |
+| O-5 | Grace period duration | **90 days, with honesty note** | No known external implementers; period is precautionary; see §10.6 |
 
 ---
 
@@ -386,26 +486,35 @@ The memo proposes 90 days for existing Standard-claiming implementations to add 
 - **ODS CONFORMANCE.md v2.0.0** — §Standard (current requirements), §Full (current requirements), §Profile Conformance Cap.
 - **ODS VERSIONING.md v2.0.0** — §MINOR (triggers), §MAJOR (triggers).
 - Kelsey, Schneier. "Second Preimages on n-bit Hash Functions for Much Less than 2ⁿ Work." 2005. (Motivates domain-separation prefixes in RFC 6962 §2.1.)
+- **DESIGN-MEMO-001 v1** — 2026-05-18, same branch, commit `2964574`. Preserved for Council review history.
+- **DESIGN-MEMO-002** (future) — Signed CHECKPOINTs: key management, signing procedure, Full-level conformance requirement.
 
 ---
 
-## 13. Checklist — Pre-Council Review
+## 13. Checklist — Pre-Council Re-review
 
-- [x] Problem statement is concrete and cites specific spec language
-- [x] Resolution anchored in RFC 6962 as directed (not an original construction)
-- [x] Leaf hash construction fully specified with exact byte layout
-- [x] Internal node construction fully specified with exact byte layout
-- [x] Canonical ordering specified and deterministic
-- [x] All three edge cases addressed (empty, single, odd)
-- [x] Root storage mechanism proposed (CHECKPOINT record type)
-- [x] Inclusion proof format fully specified
-- [x] Versioning impact argued with SemVer reasoning
-- [x] Conformance impact specified for all three levels
-- [x] Existing spec inconsistency surfaced for Council resolution
-- [x] Open questions enumerated with options presented, not pre-decided
-- [x] References provided with specific section citations
+- [x] Amendment history documents v1 → v2 changes
+- [x] v1 structural flaw (timestamp / consistency-proof incompatibility) identified and corrected
+- [x] sequence_number: assignment, storage, non-falsifiability, and Merkle-eligibility boundary fully specified
+- [x] Leaf hash updated to use stored representation (includes sequence_number)
+- [x] Leaf hash formula unchanged in structure; pre-image definition updated
+- [x] Internal node construction unchanged from v1
+- [x] Canonical ordering section completely rewritten (§5.1–5.4)
+- [x] Edge cases unchanged (split rule is independent of ordering mechanism)
+- [x] CHECKPOINT schema updated (covers_through_sequence_number, ordering field)
+- [x] Security limitation statement for unsigned CHECKPOINT explicit (§7.3.1)
+- [x] CHECKPOINT as active type (O-2 resolved) with rationale in §7.5
+- [x] Inclusive approach (O-4 resolved) with rationale in §7.2
+- [x] Verification procedure updated (step 4 confirms sequence_number / leaf_index relationship)
+- [x] Consistency proofs: validity argument added (§8.4 updated)
+- [x] Versioning analysis updated for sequence_number model; argument made explicitly (§9.2)
+- [x] Conformance impact specified for all three levels (§10.1–10.4)
+- [x] §10.5 inconsistency resolved (Merkle at Standard, SPECIFICATION.md §10 to be corrected)
+- [x] Grace period with honesty note (§10.6)
+- [x] All open questions replaced with resolved decisions table (§11)
+- [x] References updated (v1 memo preserved, DESIGN-MEMO-002 noted as future)
 
 ---
 
-*Status: DRAFT v1 — Ready for Council Review*
-*Next step: Council reviews, amends, and either returns for revision or authorizes as Final Memo*
+*Status: DRAFT v2 — Pending Council Re-review*
+*Next step: Council reviews v2; if no further amendments required, authorizes as Final Memo and opens implementation*
