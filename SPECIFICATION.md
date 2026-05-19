@@ -1,7 +1,7 @@
-# Operational Decision Standard (ODS) v2.0
+# Operational Decision Standard (ODS) v2.1
 
-**Status:** PUBLISHED
-**Version:** 2.0.0
+**Status:** DRAFT — pending v2.1.0 release
+**Version:** 2.1.0
 **Date:** May 2026
 **License:** Apache 2.0
 **Maintainer:** ODS Foundation
@@ -161,7 +161,7 @@ Every record, regardless of type, shares this identity structure:
 ```json
 {
   "_schema_version": "2.0.0",
-  "record_type": "DECISION | OUTCOME",
+  "record_type": "DECISION | OUTCOME | CHECKPOINT",
   "record_id": "UUID v4",
   "timestamp_utc": "ISO 8601 UTC",
   "parent_id": "UUID v4 | absent",
@@ -175,7 +175,7 @@ Every record, regardless of type, shares this identity structure:
 - Constraints: Must be globally unique across all records in the store
 
 **`record_type`** (required, all types)
-- Type: Enum: `DECISION`, `OUTCOME`
+- Type: Enum: `DECISION`, `OUTCOME`, `CHECKPOINT`
 - Purpose: Discriminator that determines which fields are valid and required
 
 **`timestamp_utc`** (required, all types)
@@ -880,17 +880,21 @@ ODS supports financial regulatory compliance via risk decision audit trails, mod
 
 ## 10. Reference Implementation
 
-### 10.1 ORPI Decision Vault
+As of v2.1.0, there is no known external implementation of ODS. The specification is implementation-ready; implementations are being developed by early adopters.
 
-The first Full-conformance implementation is **ORPI Decision Vault** by ORPI Systems.
+The repository ships a **reference validator** (`validator/validate.py`) that is the normative reference for schema compliance:
 
-**Conformance:** ODS Core v2 Full + ODS-Finance v1 Full
+- Validates records against the core JSON Schema (`schema/ods_record_v2.json`)
+- Two-pass validation for profile-carrying records (core + profile schema)
+- Store-level invariant checks with `--store` (parent_id existence, FINAL uniqueness)
+- CHECKPOINT record validation and `sequence_number` field validation (v2.1.0+)
+- RFC 6962 §2.1 Merkle construction verified by test vectors in `validator/test_merkle_rfc6962.py`
 
-**Source:** Reference implementation available at github.com/orpi-systems/decision-vault
+Implementation teams should use the validator as their primary conformance checking tool.
 
-### 10.2 Implementation Guide
+### 10.1 Implementation Guide
 
-See [IMPLEMENTATION.md](./IMPLEMENTATION.md) for step-by-step instructions.
+See [IMPLEMENTATION.md](./IMPLEMENTATION.md) for build guidance.
 
 ---
 
@@ -903,7 +907,9 @@ ODS follows semantic versioning (MAJOR.MINOR.PATCH):
 - **Minor** (2.X.0) — backward-compatible additions (new optional core fields, new profiles, new reserved record types)
 - **Patch** (2.0.X) — clarifications, no semantic change
 
-Current version: **2.0.0**
+Current version: **2.1.0**
+
+> **v2.1.0 minor bump rationale:** The addition of Merkle tree verification as a Standard-level requirement is classified as a minor version increment (not major) for three reasons: (1) no v2.0 record schema changes — existing DECISION and OUTCOME records written under `_schema_version: "2.0.0"` remain valid and unmodified; (2) `sequence_number` is store-assigned and absent from client-submitted payloads, so the record submission API contract is unchanged for record authors; (3) v2.0 records in stores upgraded to v2.1.0 are excluded from the Merkle log (Merkle-ineligible), preserving their immutability unconditionally. The Merkle construction was always flagged as pending RFC in v2.0 (§7.4 stated "pending RFC"); v2.1.0 is the resolution of that documented placeholder. Full rationale: DESIGN-MEMO-001 §9.2 (branch rfc/merkle-DESIGN-MEMO-001).
 
 ### 11.2 Governance Process
 
