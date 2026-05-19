@@ -154,6 +154,8 @@ def load_store(store_path: Path) -> dict[str, dict]:
 def validate_checkpoint(record: dict) -> tuple[list[str], list[str]]:
     """
     Validate CHECKPOINT-specific constraints beyond JSON Schema.
+    Does NOT enforce sequence_number presence — that is handled by
+    validate_stored_representation() when --stored mode is active.
     Returns (errors, warnings).
     """
     errors = []
@@ -162,22 +164,9 @@ def validate_checkpoint(record: dict) -> tuple[list[str], list[str]]:
     if record.get("record_type") != "CHECKPOINT":
         return errors, warnings
 
-    # sequence_number is required for CHECKPOINT records (they are always Merkle-eligible)
-    if "sequence_number" not in record:
-        errors.append(
-            "CHECKPOINT record is missing 'sequence_number'. "
-            "CHECKPOINT records must have a store-assigned sequence_number."
-        )
-    else:
-        seq = record["sequence_number"]
-        if not isinstance(seq, int) or seq < 1:
-            errors.append(
-                f"'sequence_number' must be a positive integer >= 1, got: {seq!r}"
-            )
-
     cp = record.get("checkpoint", {})
 
-    # covers_through_sequence_number must be <= tree_size (when both present and valid)
+    # covers_through_sequence_number must equal tree_size for gapless logs
     tree_size = cp.get("tree_size")
     covers = cp.get("covers_through_sequence_number")
     if isinstance(tree_size, int) and isinstance(covers, int):
@@ -188,9 +177,9 @@ def validate_checkpoint(record: dict) -> tuple[list[str], list[str]]:
                 "A mismatch is permitted but should be reviewed."
             )
 
-    # The CHECKPOINT's own sequence_number must be > covers_through_sequence_number
-    if "sequence_number" in record and isinstance(covers, int):
-        own_seq = record.get("sequence_number")
+    # The CHECKPOINT's own sequence_number must be > covers_through_sequence_number (when present)
+    own_seq = record.get("sequence_number")
+    if own_seq is not None and isinstance(covers, int):
         if isinstance(own_seq, int) and own_seq <= covers:
             errors.append(
                 f"CHECKPOINT sequence_number ({own_seq}) must be strictly greater than "
@@ -203,18 +192,33 @@ def validate_checkpoint(record: dict) -> tuple[list[str], list[str]]:
 
 def validate_sequence_number(record: dict) -> list[str]:
     """
-    Validate sequence_number field for non-CHECKPOINT records if present.
+    Validate sequence_number value for any record type, if present.
+    Does NOT enforce presence — submitted records legitimately omit it.
+    Presence enforcement is handled by validate_stored_representation() (--stored mode).
     """
     errors = []
-    if record.get("record_type") == "CHECKPOINT":
-        return errors  # handled by validate_checkpoint
-
     seq = record.get("sequence_number")
     if seq is not None:
         if not isinstance(seq, int) or seq < 1:
             errors.append(
                 f"'sequence_number' must be a positive integer >= 1, got: {seq!r}"
             )
+    return errors
+
+
+def validate_stored_representation(record: dict) -> list[str]:
+    """
+    Enforce sequence_number presence for stored record representations (--stored mode).
+    All v2.1.0+ stored records must carry the store-assigned sequence_number.
+    Called only when --stored flag is active. See SPECIFICATION.md §3.3.
+    """
+    errors = []
+    if "sequence_number" not in record:
+        record_type = record.get("record_type", "RECORD")
+        errors.append(
+            f"'sequence_number' is absent (--stored mode). Stored {record_type} records "
+            "must have a store-assigned sequence_number. See SPECIFICATION.md §3.3."
+        )
     return errors
 
 
@@ -318,6 +322,17 @@ def main():
             "Emits a warning instead of an error. NOT recommended for production use."
         ),
     )
+    parser.add_argument(
+        "--stored",
+        action="store_true",
+        default=False,
+        help=(
+            "Validate a stored record representation (post-write, sequence_number assigned by store). "
+            "In stored mode, sequence_number is REQUIRED for all record types. "
+            "Without this flag, sequence_number is optional (submitted representation, pre-store-assignment). "
+            "See SPECIFICATION.md §3.3."
+        ),
+    )
     args = parser.parse_args()
 
     record_path = Path(args.file)
@@ -359,6 +374,10 @@ def main():
     checkpoint_errors, checkpoint_warnings = validate_checkpoint(record)
     all_errors.extend(checkpoint_errors)
     all_warnings.extend(checkpoint_warnings)
+
+    # Stored-mode: enforce sequence_number presence for all record types
+    if args.stored:
+        all_errors.extend(validate_stored_representation(record))
 
     # Store-level invariants
     if args.store:
