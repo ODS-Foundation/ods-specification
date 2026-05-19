@@ -1,5 +1,5 @@
 """
-ODS v2.0 Record Validator
+ODS v2.x Record Validator
 
 Performs two-pass validation:
   Pass 1 — core schema (schema/ods_record_v2.json)
@@ -9,6 +9,10 @@ Store-level invariants (parent_id existence, FINAL uniqueness, OUTCOME profile c
 require the --store flag pointing to a directory of existing records.
 
 Reserved profile namespace detection uses schema/profiles/registry.json.
+
+v2.1.0 additions:
+  - CHECKPOINT record type validation (checkpoint block fields, sequence_number)
+  - sequence_number field validation for Merkle-eligible records
 """
 
 import json
@@ -147,6 +151,73 @@ def load_store(store_path: Path) -> dict[str, dict]:
     return store
 
 
+def validate_checkpoint(record: dict) -> tuple[list[str], list[str]]:
+    """
+    Validate CHECKPOINT-specific constraints beyond JSON Schema.
+    Returns (errors, warnings).
+    """
+    errors = []
+    warnings = []
+
+    if record.get("record_type") != "CHECKPOINT":
+        return errors, warnings
+
+    # sequence_number is required for CHECKPOINT records (they are always Merkle-eligible)
+    if "sequence_number" not in record:
+        errors.append(
+            "CHECKPOINT record is missing 'sequence_number'. "
+            "CHECKPOINT records must have a store-assigned sequence_number."
+        )
+    else:
+        seq = record["sequence_number"]
+        if not isinstance(seq, int) or seq < 1:
+            errors.append(
+                f"'sequence_number' must be a positive integer >= 1, got: {seq!r}"
+            )
+
+    cp = record.get("checkpoint", {})
+
+    # covers_through_sequence_number must be <= tree_size (when both present and valid)
+    tree_size = cp.get("tree_size")
+    covers = cp.get("covers_through_sequence_number")
+    if isinstance(tree_size, int) and isinstance(covers, int):
+        if covers != tree_size:
+            warnings.append(
+                f"checkpoint.covers_through_sequence_number ({covers}) != checkpoint.tree_size ({tree_size}). "
+                "These are equal when the Merkle log is gapless from sequence_number 1. "
+                "A mismatch is permitted but should be reviewed."
+            )
+
+    # The CHECKPOINT's own sequence_number must be > covers_through_sequence_number
+    if "sequence_number" in record and isinstance(covers, int):
+        own_seq = record.get("sequence_number")
+        if isinstance(own_seq, int) and own_seq <= covers:
+            errors.append(
+                f"CHECKPOINT sequence_number ({own_seq}) must be strictly greater than "
+                f"checkpoint.covers_through_sequence_number ({covers}). "
+                "A CHECKPOINT is written after the tree it describes."
+            )
+
+    return errors, warnings
+
+
+def validate_sequence_number(record: dict) -> list[str]:
+    """
+    Validate sequence_number field for non-CHECKPOINT records if present.
+    """
+    errors = []
+    if record.get("record_type") == "CHECKPOINT":
+        return errors  # handled by validate_checkpoint
+
+    seq = record.get("sequence_number")
+    if seq is not None:
+        if not isinstance(seq, int) or seq < 1:
+            errors.append(
+                f"'sequence_number' must be a positive integer >= 1, got: {seq!r}"
+            )
+    return errors
+
+
 def validate_store_invariants(record: dict, store: dict[str, dict]) -> list[str]:
     """
     Validate store-level invariants that JSON Schema cannot enforce:
@@ -274,11 +345,20 @@ def main():
             print(f"  · {e}")
         sys.exit(1)
 
-    # Pass 2 — profile schema
-    profile_errors, profile_warnings = validate_profile(record, args)
+    # Pass 2 — profile schema (skipped for CHECKPOINT records; they carry no domain profile)
+    if record.get("record_type") == "CHECKPOINT":
+        profile_errors, profile_warnings = [], []
+    else:
+        profile_errors, profile_warnings = validate_profile(record, args)
 
     all_errors = list(profile_errors)
     all_warnings = list(profile_warnings)
+
+    # v2.1.0 — sequence_number and CHECKPOINT-specific validation
+    all_errors.extend(validate_sequence_number(record))
+    checkpoint_errors, checkpoint_warnings = validate_checkpoint(record)
+    all_errors.extend(checkpoint_errors)
+    all_warnings.extend(checkpoint_warnings)
 
     # Store-level invariants
     if args.store:
@@ -305,9 +385,10 @@ def main():
         print(f"⚠  {w}")
 
     record_type = record.get("record_type", "RECORD")
+    schema_version = record.get("_schema_version", "2.x")
     profile_field = record.get("profile")
     profile_suffix = f" [{profile_field}]" if profile_field else ""
-    print(f"✓ ODS VALID: {record_type} record compliant with core schema v2.0.0{profile_suffix}")
+    print(f"✓ ODS VALID: {record_type} record compliant with core schema v{schema_version}{profile_suffix}")
     sys.exit(0)
 
 
