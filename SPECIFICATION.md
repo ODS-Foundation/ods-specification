@@ -1,6 +1,6 @@
 # Operational Decision Standard (ODS) v2.1
 
-**Status:** DRAFT — pending v2.1.0 release
+**Status:** PUBLISHED
 **Version:** 2.1.0
 **Date:** May 2026
 **License:** Apache 2.0
@@ -1001,5 +1001,5 @@ Issues: https://github.com/ODS-Foundation/ods-specification/issues
 ---
 
 **Version:** 2.1.0
-**Published:** May 2026
+**Published:** 2026-05-19
 **Next Review:** November 2026
