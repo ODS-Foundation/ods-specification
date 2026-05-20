@@ -56,6 +56,11 @@ A Standard-conformant implementation includes everything in Basic, plus:
 - Verifies record integrity with SHA-256 per record using RFC 8785 (JCS) canonical serialization
 - Retains records for at least 7 years
 - Supports third-party audit access to records and the canonical state API
+- **(v2.1.0+)** Assigns a monotonically increasing `sequence_number` to each record at write time; rejects client-submitted records that include a `sequence_number` field
+- **(v2.1.0+)** Computes Merkle trees per RFC 6962 §2.1 using the construction specified in SPECIFICATION.md §7.7, ordering leaves by `sequence_number ASC`
+- **(v2.1.0+)** Emits `CHECKPOINT` records at minimum every 1,000 Merkle-eligible records or every 24 hours of operation with at least one write, whichever comes first
+- **(v2.1.0+)** Exposes inclusion proof API: `GET /records/{id}/proof`
+- **(v2.1.0+)** Verifies inclusion proofs against `CHECKPOINT` roots on auditor request
 
 Suitable for: regulated industries, enterprise governance, organizations preparing for external audit.
 
@@ -70,6 +75,9 @@ A Full-conformant implementation includes everything in Standard, plus:
   - **Learning Velocity** (OLS regression slope of DPI over time)
 - Supports real-time governance and compliance signaling
 - Retains records permanently
+- **(v2.1.0+)** Implements consistency proof generation (RFC 6962 §2.1.2) between any two sequential CHECKPOINTs; exposes `GET /checkpoints/{new_id}/consistency?from={old_id}`
+- **(v2.1.0+)** Verifies consistency proofs on receipt of new CHECKPOINTs
+- **(v2.1.0+)** Supports real-time Merkle verification on record ingest (not only at checkpoint intervals)
 
 Suitable for: mission-critical decision systems, organizations building institutional intelligence as a competitive capability.
 
@@ -174,6 +182,14 @@ Organizations may self-declare conformance at any level by:
 Example declaration: *"This implementation is ODS Core v2 Standard + ODS-Finance v1 Standard conformant."*
 
 A formal third-party certification program will follow as the standard matures.
+
+---
+
+## Merkle Conformance Grace Period (v2.1.0)
+
+Implementations currently claiming Standard conformance without Merkle support (i.e., prior to v2.1.0) are given a **90-day grace period** from the v2.1.0 release date to add `sequence_number` assignment, `CHECKPOINT` emission, and inclusion proof support before their Standard conformance claim becomes non-conformant.
+
+As of v2.1.0, there are no known external implementers. The grace period is precautionary and formalizes the transition norm for the record.
 
 ---
 

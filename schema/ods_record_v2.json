@@ -1,25 +1,30 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/ODS-Foundation/ods-specification/schema/ods_record_v2.json",
-  "title": "ODS v2.0.0 Core Record Schema",
-  "description": "JSON Schema for validating ODS v2.0.0 core records (DECISION and OUTCOME types). Domain-specific fields are validated in a second pass by profile schemas in schema/profiles/.",
+  "title": "ODS v2.x Core Record Schema",
+  "description": "JSON Schema for validating ODS v2.0.0 and v2.1.0 core records (DECISION, OUTCOME, and CHECKPOINT types). Domain-specific fields are validated in a second pass by profile schemas in schema/profiles/.",
   "type": "object",
   "required": ["_schema_version", "record_type", "record_id", "timestamp_utc"],
   "properties": {
     "_schema_version": {
       "type": "string",
-      "const": "2.0.0",
+      "enum": ["2.0.0", "2.1.0"],
       "description": "ODS schema version"
     },
     "record_type": {
       "type": "string",
-      "enum": ["DECISION", "OUTCOME"],
+      "enum": ["DECISION", "OUTCOME", "CHECKPOINT"],
       "description": "Discriminator determining which fields are required and valid"
     },
     "record_id": {
       "type": "string",
       "format": "uuid",
       "description": "Globally unique UUID v4 identifier for this record"
+    },
+    "sequence_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Store-assigned monotonically increasing Merkle log position. Present in v2.1.0+ stored representations from Standard-and-above stores. Clients MUST NOT submit this field; the store assigns it at write time."
     },
     "timestamp_utc": {
       "type": "string",
@@ -177,63 +182,120 @@
     ]
   },
   "else": {
-    "required": ["parent_id", "outcome_status", "outcomes", "governance"],
-    "properties": {
-      "outcome_status": {
-        "type": "string",
-        "enum": ["PARTIAL", "FINAL"],
-        "description": "PARTIAL: intermediate measurement. FINAL: closes the outcome cycle. Only one FINAL permitted per parent_id chain; enforced at write time by the store."
-      },
-      "outcomes": {
-        "type": "object",
-        "required": ["actual_result", "realized_at", "delta_from_expected"],
-        "properties": {
-          "actual_result": { "type": "number" },
-          "realized_at": { "type": "string", "format": "date-time" },
-          "delta_from_expected": { "type": "number" },
-          "outcome_quality": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 1
-          }
+    "if": {
+      "properties": { "record_type": { "const": "OUTCOME" } }
+    },
+    "then": {
+      "required": ["parent_id", "outcome_status", "outcomes", "governance"],
+      "properties": {
+        "outcome_status": {
+          "type": "string",
+          "enum": ["PARTIAL", "FINAL"],
+          "description": "PARTIAL: intermediate measurement. FINAL: closes the outcome cycle. Only one FINAL permitted per parent_id chain; enforced at write time by the store."
         },
-        "additionalProperties": false
-      },
-      "governance": {
-        "type": "object",
-        "required": ["audit_trail"],
-        "properties": {
-          "audit_trail": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": ["timestamp_utc", "event", "actor"],
-              "properties": {
-                "timestamp_utc": { "type": "string", "format": "date-time" },
-                "event": {
-                  "type": "string",
-                  "enum": ["OUTCOME_LOGGED", "VERIFIED", "AUDITED"]
-                },
-                "actor": { "type": "string" },
-                "metadata": { "type": "object" }
-              },
-              "additionalProperties": false
+        "outcomes": {
+          "type": "object",
+          "required": ["actual_result", "realized_at", "delta_from_expected"],
+          "properties": {
+            "actual_result": { "type": "number" },
+            "realized_at": { "type": "string", "format": "date-time" },
+            "delta_from_expected": { "type": "number" },
+            "outcome_quality": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
             }
           },
-          "compliance": {
-            "type": "object",
-            "properties": {
-              "policy_violations": {
-                "type": "array",
-                "items": { "type": "string" }
-              },
-              "approvals": {
-                "type": "array",
-                "items": { "type": "string" }
+          "additionalProperties": false
+        },
+        "governance": {
+          "type": "object",
+          "required": ["audit_trail"],
+          "properties": {
+            "audit_trail": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["timestamp_utc", "event", "actor"],
+                "properties": {
+                  "timestamp_utc": { "type": "string", "format": "date-time" },
+                  "event": {
+                    "type": "string",
+                    "enum": ["OUTCOME_LOGGED", "VERIFIED", "AUDITED"]
+                  },
+                  "actor": { "type": "string" },
+                  "metadata": { "type": "object" }
+                },
+                "additionalProperties": false
               }
             },
-            "description": "Core compliance fields. Profiles extend this object with domain-specific compliance fields."
+            "compliance": {
+              "type": "object",
+              "properties": {
+                "policy_violations": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "approvals": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              },
+              "description": "Core compliance fields. Profiles extend this object with domain-specific compliance fields."
+            }
           }
+        }
+      }
+    },
+    "else": {
+      "description": "CHECKPOINT record type (v2.1.0+)",
+      "required": ["identity", "checkpoint"],
+      "properties": {
+        "_schema_version": {
+          "const": "2.1.0",
+          "description": "CHECKPOINT records require _schema_version 2.1.0. This type did not exist in 2.0.0; the combination _schema_version 2.0.0 + record_type CHECKPOINT is impossible."
+        },
+        "identity": {
+          "type": "object",
+          "required": ["model_version", "policy_hash"],
+          "properties": {
+            "model_version": {
+              "type": "string",
+              "pattern": "^v?\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?$"
+            },
+            "policy_hash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "checkpoint": {
+          "type": "object",
+          "required": ["tree_size", "tree_root", "covers_through_sequence_number", "ordering"],
+          "properties": {
+            "tree_size": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of records included as leaves in this Merkle tree"
+            },
+            "tree_root": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "description": "64-character lowercase hex SHA-256 Merkle root"
+            },
+            "covers_through_sequence_number": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "sequence_number of the last record included in this tree. minimum:0 is intentional: a CHECKPOINT over an empty Merkle log (tree_size 0) has covers_through_sequence_number 0. For non-empty logs this value is always >= 1."
+            },
+            "ordering": {
+              "type": "string",
+              "const": "sequence_number ASC",
+              "description": "Canonical ordering used for Merkle tree construction"
+            }
+          },
+          "additionalProperties": false
         }
       }
     }

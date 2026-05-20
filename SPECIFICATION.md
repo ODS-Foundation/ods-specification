@@ -1,7 +1,7 @@
-# Operational Decision Standard (ODS) v2.0
+# Operational Decision Standard (ODS) v2.1
 
 **Status:** PUBLISHED
-**Version:** 2.0.0
+**Version:** 2.1.0
 **Date:** May 2026
 **License:** Apache 2.0
 **Maintainer:** ODS Foundation
@@ -137,14 +137,17 @@ The current state of a decision is not stored in any single record — it is com
 
 ### 3.2 Record Types
 
-ODS v2.0 defines two record types:
+ODS defines three active record types:
 
-| `record_type` | Purpose |
-|---------------|---------|
-| `DECISION` | The primary record capturing the decision, its context, rationale, and governance. Created once, never modified. |
-| `OUTCOME` | A record capturing a realized outcome linked to a DECISION. Created after the outcome is known. |
+| `record_type` | Added | Purpose |
+|---------------|-------|---------|
+| `DECISION` | v2.0.0 | The primary record capturing the decision, its context, rationale, and governance. Created once, never modified. |
+| `OUTCOME` | v2.0.0 | A record capturing a realized outcome linked to a DECISION. Created after the outcome is known. |
+| `CHECKPOINT` | v2.1.0 | Cryptographic infrastructure record that attests to the Merkle root of a specific prefix of the store's Merkle log. See §7.7. |
 
-The following types are reserved for future minor versions and MUST NOT be used in v2.0 implementations:
+`CHECKPOINT` is an infrastructure primitive, not a domain-semantic record type. It does not affect DPI/CFR metric computation. See §7.7 for the full specification.
+
+The following types are reserved for future minor versions and MUST NOT be used in v2.x implementations:
 
 | `record_type` | Planned Purpose |
 |---------------|-----------------|
@@ -158,7 +161,7 @@ Every record, regardless of type, shares this identity structure:
 ```json
 {
   "_schema_version": "2.0.0",
-  "record_type": "DECISION | OUTCOME",
+  "record_type": "DECISION | OUTCOME | CHECKPOINT",
   "record_id": "UUID v4",
   "timestamp_utc": "ISO 8601 UTC",
   "parent_id": "UUID v4 | absent",
@@ -172,7 +175,7 @@ Every record, regardless of type, shares this identity structure:
 - Constraints: Must be globally unique across all records in the store
 
 **`record_type`** (required, all types)
-- Type: Enum: `DECISION`, `OUTCOME`
+- Type: Enum: `DECISION`, `OUTCOME`, `CHECKPOINT`
 - Purpose: Discriminator that determines which fields are valid and required
 
 **`timestamp_utc`** (required, all types)
@@ -190,6 +193,13 @@ Every record, regardless of type, shares this identity structure:
 - Purpose: Identifies the domain profile governing domain-specific fields in this record
 - For DECISION records: REQUIRED when the record contains an `action` section; MAY be absent on governance-only records (no `action`)
 - For OUTCOME records: OPTIONAL; if present, MUST match the profile of the parent DECISION
+
+**`sequence_number`** (store-assigned; present in v2.1.0+ stored representations from Standard-and-above stores)
+- Type: Positive integer, beginning at 1 per Merkle log
+- Assigned exclusively by the store at write time; absent from client-submitted payloads
+- Clients MUST NOT include `sequence_number` in submitted records; the store MUST reject records that include it
+- Monotonically increasing and gapless within a Merkle log; used as the canonical leaf-ordering key (§7.7)
+- Absent on records written before the store was upgraded to v2.1.0 (those records are Merkle-ineligible)
 
 **`context`** (DECISION records — RECOMMENDED)
 - Type: Object
@@ -604,7 +614,7 @@ Implementations MUST enforce the one-FINAL-per-chain invariant at write time. An
 
 **Canonical serialization for hashing:** RFC 8785 (JSON Canonicalization Scheme, JCS). Implementations MUST use a JCS-conformant library. JCS is portable across all programming languages; Python-flavor `json.dumps(sort_keys=True)` is NOT conformant.
 
-**Verification:** Merkle tree construction is specified in a separate document (pending RFC). For v2.0, per-record SHA-256 hashing is required at Standard conformance; Merkle tree batch verification is required at Full conformance.
+**Verification:** Per-record SHA-256 hashing is required at all conformance levels (Basic and above). Merkle tree batch verification is required at Standard conformance and above; the normative construction is specified in §7.7 (introduced in v2.1.0).
 
 ### 7.5 Temporal Requirements
 
@@ -619,12 +629,160 @@ Implementations MUST enforce the one-FINAL-per-chain invariant at write time. An
 ODS-compliant systems SHOULD expose:
 
 ```
-POST /records                       — Write a new record (DECISION or OUTCOME)
-GET  /records/{record_id}           — Retrieve a single record
-GET  /records/{record_id}/state     — Canonical state per Section 3.5
-GET  /records?parent_id={id}        — All records with a given parent_id
-GET  /records/{record_id}/verify    — Cryptographic verification
+POST /records                                                    — Write a new record (DECISION, OUTCOME, or CHECKPOINT)
+GET  /records/{record_id}                                        — Retrieve a single record
+GET  /records/{record_id}/state                                  — Canonical state per Section 3.5
+GET  /records?parent_id={id}                                     — All records with a given parent_id
+GET  /records/{record_id}/verify                                 — Per-record SHA-256 verification
+GET  /records/{record_id}/proof?checkpoint={checkpoint_id}       — Merkle inclusion proof (v2.1.0+, Standard)
+GET  /checkpoints/{checkpoint_id}/consistency?from={old_id}      — Consistency proof between checkpoints (v2.1.0+, Full)
 ```
+
+### 7.7 Merkle Tree Construction (v2.1.0)
+
+**Normative references:** RFC 6962 §2.1 (Merkle Hash Trees), §2.1.1 (Merkle Audit Proofs), §2.1.2 (Merkle Consistency Proofs), §3.5 (Signed Tree Head). RFC 8785 (JCS) for leaf pre-image serialization.
+
+ODS adopts the RFC 6962 (Certificate Transparency) Merkle Hash Tree construction as the normative basis for batch verification. ODS does not invent cryptographic constructions; it adopts battle-tested IETF-specified ones — the same philosophy that drove adoption of RFC 8785 for canonical serialization.
+
+#### 7.7.1 Leaf Hash Construction
+
+Each Merkle-eligible record (any record with a store-assigned `sequence_number`) maps to exactly one leaf:
+
+```
+leaf_hash = SHA-256(0x00 || UTF-8(JCS(stored_record)))
+```
+
+- `0x00` — single-byte domain separation prefix per RFC 6962 §2.1 (prevents second-preimage attacks: a leaf hash cannot be mistaken for an internal node hash)
+- `JCS(stored_record)` — RFC 8785 canonical JSON serialization of the complete stored record as returned by `GET /records/{id}`, including the store-assigned `sequence_number` field
+- The leaf hash commits to every field of the record, including `sequence_number`, binding each record to its position in the log
+
+#### 7.7.2 Internal Node Construction
+
+For any two child hashes `left` and `right` (each 32 bytes):
+
+```
+node_hash = SHA-256(0x01 || left || right)
+```
+
+- `0x01` — single-byte domain separation prefix per RFC 6962 §2.1
+- Pre-image length: 65 bytes (1 + 32 + 32)
+
+This is identical to the Certificate Transparency log hash function.
+
+#### 7.7.3 Canonical Ordering
+
+**Canonical ordering is by `sequence_number` ascending.**
+
+`sequence_number` is store-assigned and monotonically increasing, making the Merkle log append-only by construction. This is the required property for RFC 6962 §2.1.2 consistency proofs to be mathematically valid. Client-supplied `timestamp_utc` MUST NOT be used as the ordering key: it is not monotonic at the log level (clock skew and bulk imports allow backdated records), which would break the prefix-extension property that consistency proofs depend on.
+
+#### 7.7.4 Edge Cases
+
+Per RFC 6962 §2.1 recursive definition:
+
+**Empty tree:**
+```
+MTH({}) = SHA-256(b"")
+```
+
+**Single record:**
+```
+MTH({d[0]}) = SHA-256(0x00 || UTF-8(JCS(stored_record_0)))
+```
+Root equals the single leaf hash; no internal node.
+
+**Odd or general `n` — RFC 6962 power-of-two split rule:**
+
+For `n` records `D[0..n-1]`:
+1. `k = 2^⌊log₂(n-1)⌋` — the largest power of 2 strictly less than `n`
+2. Left subtree: `D[0..k-1]` (k records); right subtree: `D[k..n-1]` (n−k records)
+3. `MTH(D[0..n-1]) = SHA-256(0x01 || MTH(D[0..k-1]) || MTH(D[k..n-1]))`
+
+| n | k | Left | Right |
+|---|---|------|-------|
+| 3 | 2 | 2    | 1     |
+| 5 | 4 | 4    | 1     |
+| 6 | 4 | 4    | 2     |
+| 7 | 4 | 4    | 3     |
+| 9 | 8 | 8    | 1     |
+
+RFC 6962 does NOT pad with zero hashes. Any implementation that pads will produce a different root.
+
+#### 7.7.5 CHECKPOINT Record
+
+A `CHECKPOINT` record attests to the Merkle root of a specific prefix of the store's Merkle log. It is stored as an ordinary ODS record (immutable, append-only) and receives its own `sequence_number`. It is NOT included in the tree it describes; it IS included as a leaf in subsequent trees.
+
+**Schema:**
+
+```json
+{
+  "_schema_version": "2.1.0",
+  "record_type": "CHECKPOINT",
+  "record_id": "<uuid-v4>",
+  "sequence_number": 43,
+  "timestamp_utc": "<iso-8601-microseconds>",
+  "identity": {
+    "model_version": "<string>",
+    "policy_hash": "<sha256-hex>"
+  },
+  "checkpoint": {
+    "tree_size": 42,
+    "tree_root": "<sha256-hex-64-chars>",
+    "covers_through_sequence_number": 42,
+    "ordering": "sequence_number ASC"
+  }
+}
+```
+
+- `checkpoint.tree_size` — number of records included as leaves
+- `checkpoint.tree_root` — 64-char lowercase hex SHA-256 Merkle root
+- `checkpoint.covers_through_sequence_number` — `sequence_number` of the last included record; equals `tree_size` when the log is gapless from sequence_number 1
+- `checkpoint.ordering` — literal string `"sequence_number ASC"` for v2.1.0
+
+**Security limitation:** Unsigned CHECKPOINTs provide tamper-evidence (any modification to included records changes the root and causes verification to fail) but do NOT provide tamper-proof attribution (without a signature, it cannot be proven who generated a given CHECKPOINT). Signed CHECKPOINTs are deferred to a future RFC as a Full-level requirement.
+
+**Emission cadence:** Standard-conformant implementations MUST emit at least one CHECKPOINT after every 1,000 Merkle-eligible records appended, or after every 24 hours of operation with at least one write, whichever comes first.
+
+#### 7.7.6 Merkle Log Genesis and v2.0 Record Exclusion
+
+When a v2.0 store is upgraded to v2.1.0, pre-existing records (those written before the upgrade) have no `sequence_number` and are excluded from the Merkle log. The Merkle sequence begins at `sequence_number: 1` with the first record written after the upgrade. Pre-existing records remain fully readable and SHA-256-verified (v2.0 Standard requirement) but do not appear as Merkle leaves.
+
+Retroactive assignment of `sequence_number` to v2.0 records is PROHIBITED — it would require modifying their stored representation, violating ODS immutability.
+
+#### 7.7.7 Inclusion Proof Format
+
+An inclusion proof demonstrates that a record is a leaf in a specific CHECKPOINT's tree without reconstructing the full tree (RFC 6962 §2.1.1 audit path):
+
+**Request:** `GET /records/{record_id}/proof?checkpoint={checkpoint_record_id}`
+
+If `checkpoint` is omitted, the most recent CHECKPOINT covering the record is used.
+
+**Response:**
+```json
+{
+  "record_id": "<uuid>",
+  "checkpoint_record_id": "<uuid>",
+  "leaf_index": 41,
+  "tree_size": 42,
+  "audit_path": ["<sha256-hex>", "..."]
+}
+```
+
+- `leaf_index` — zero-based position; equals `stored_record.sequence_number - 1`
+
+**Verification procedure:**
+1. Fetch stored record; compute `leaf_hash = SHA-256(0x00 || UTF-8(JCS(stored_record)))`
+2. Fetch CHECKPOINT; extract `tree_root`
+3. Confirm `leaf_index = stored_record.sequence_number - 1`
+4. Walk `audit_path` per RFC 6962 §2.1.1, combining with `SHA-256(0x01 || left || right)`
+5. Accept if and only if computed root equals `tree_root`
+
+#### 7.7.8 Consistency Proofs (Full Conformance)
+
+RFC 6962 §2.1.2 consistency proofs prove that a later tree is a prefix extension of an earlier tree (no records were deleted or reordered). Valid under `sequence_number` ordering because the log is append-only by construction.
+
+**Request:** `GET /checkpoints/{new_checkpoint_id}/consistency?from={old_checkpoint_id}`
+
+Required for Full conformance. Recommended for Standard. See CONFORMANCE.md.
 
 ---
 
@@ -722,17 +880,21 @@ ODS supports financial regulatory compliance via risk decision audit trails, mod
 
 ## 10. Reference Implementation
 
-### 10.1 ORPI Decision Vault
+As of v2.1.0, there is no known external implementation of ODS. The specification is implementation-ready; implementations are being developed by early adopters.
 
-The first Full-conformance implementation is **ORPI Decision Vault** by ORPI Systems.
+The repository ships a **reference validator** (`validator/validate.py`) that is the normative reference for schema compliance:
 
-**Conformance:** ODS Core v2 Full + ODS-Finance v1 Full
+- Validates records against the core JSON Schema (`schema/ods_record_v2.json`)
+- Two-pass validation for profile-carrying records (core + profile schema)
+- Store-level invariant checks with `--store` (parent_id existence, FINAL uniqueness)
+- CHECKPOINT record validation and `sequence_number` field validation (v2.1.0+)
+- RFC 6962 §2.1 Merkle construction verified by test vectors in `validator/test_merkle_rfc6962.py`
 
-**Source:** Reference implementation available at github.com/orpi-systems/decision-vault
+Implementation teams should use the validator as their primary conformance checking tool.
 
-### 10.2 Implementation Guide
+### 10.1 Implementation Guide
 
-See [IMPLEMENTATION.md](./IMPLEMENTATION.md) for step-by-step instructions.
+See [IMPLEMENTATION.md](./IMPLEMENTATION.md) for build guidance.
 
 ---
 
@@ -745,7 +907,9 @@ ODS follows semantic versioning (MAJOR.MINOR.PATCH):
 - **Minor** (2.X.0) — backward-compatible additions (new optional core fields, new profiles, new reserved record types)
 - **Patch** (2.0.X) — clarifications, no semantic change
 
-Current version: **2.0.0**
+Current version: **2.1.0**
+
+> **v2.1.0 minor bump rationale:** The addition of Merkle tree verification as a Standard-level requirement is classified as a minor version increment (not major) for three reasons: (1) no v2.0 record schema changes — existing DECISION and OUTCOME records written under `_schema_version: "2.0.0"` remain valid and unmodified; (2) `sequence_number` is store-assigned and absent from client-submitted payloads, so the record submission API contract is unchanged for record authors; (3) v2.0 records in stores upgraded to v2.1.0 are excluded from the Merkle log (Merkle-ineligible), preserving their immutability unconditionally. The Merkle construction was always flagged as pending RFC in v2.0 (§7.4 stated "pending RFC"); v2.1.0 is the resolution of that documented placeholder. Full rationale: DESIGN-MEMO-001 §9.2 (branch rfc/merkle-DESIGN-MEMO-001).
 
 ### 11.2 Governance Process
 
@@ -799,13 +963,13 @@ See [GOVERNANCE.md](./GOVERNANCE.md) for full governance model.
 
 ## 13. Future Directions
 
-### 13.1 Planned (v2.1)
+### 13.1 Planned (v2.x)
 
 - CORRECTION record type — corrects a prior OUTCOME without modifying it
 - ANNOTATION record type — adds context without affecting metrics
 - Multi-party decision schema (committee and board decisions)
 - Empirically validated DPI component weights (replaces provisional weights in §6.1)
-- Formal Merkle tree construction specification
+- Signed CHECKPOINT records (key management, signing procedure, Full-level conformance requirement)
 
 ### 13.2 Profile Development
 
@@ -836,6 +1000,6 @@ Issues: https://github.com/ODS-Foundation/ods-specification/issues
 
 ---
 
-**Version:** 2.0.0
-**Published:** May 2026
+**Version:** 2.1.0
+**Published:** 2026-05-19
 **Next Review:** November 2026

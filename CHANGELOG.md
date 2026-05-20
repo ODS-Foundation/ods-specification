@@ -7,6 +7,40 @@ Versioning follows [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.ht
 
 ---
 
+## [2.1.0] - 2026-05-19
+
+**v2.1.0 resolves Audit Finding #5 — Merkle tree underspecification.**
+
+v2.0 stated "Merkle tree or equivalent" without defining the construction, making cross-implementation batch verification impossible and the conformance cap claim unverifiable. v2.1.0 specifies the normative Merkle construction (RFC 6962 §2.1), introduces the `CHECKPOINT` record type, and promotes Merkle verification from "Full" to "Standard" conformance. The design is governed by DESIGN-MEMO-001 (approved by Council 2026-05-19).
+
+### Added
+
+- **§7.7 Merkle Tree Construction** (SPECIFICATION.md) — normative specification anchored in RFC 6962 (Certificate Transparency). Covers: leaf hash construction (`SHA-256(0x00 || UTF-8(JCS(stored_record)))`), internal node construction (`SHA-256(0x01 || left || right)`), canonical ordering (`sequence_number ASC`), edge cases (empty, single, odd — RFC 6962 power-of-two split rule), CHECKPOINT record schema, emission cadence, inclusion proof format, and consistency proof API
+- **`CHECKPOINT` record type** — cryptographic infrastructure primitive; attests to Merkle root of a store prefix; assigned `sequence_number`; included as leaf in subsequent trees but not in the tree it describes; analogous to RFC 6962 §3.5 Signed Tree Head
+- **`sequence_number` field** — store-assigned, monotonically increasing integer; added to stored record JSON at write time; the canonical leaf-ordering key for the Merkle log; clients MUST NOT include it in submitted records; absent on pre-v2.1.0 records (which are Merkle-ineligible)
+- **Merkle log genesis boundary** — pre-v2.1.0 records in upgraded stores are excluded from the Merkle log; the sequence begins at 1 at the first post-upgrade write; retroactive assignment PROHIBITED
+- **Inclusion proof API** — `GET /records/{id}/proof?checkpoint={checkpoint_id}` returns RFC 6962 §2.1.1 audit paths
+- **Consistency proof API** — `GET /checkpoints/{new_id}/consistency?from={old_id}` (Full conformance; see RFC 6962 §2.1.2)
+- **RFC 6962 test vectors** — `validator/test_merkle_rfc6962.py`; empty tree, single leaf, n=4, n=7 cross-implementation verification tests
+- **Merkle conformance grace period** — 90 days from v2.1.0 release for existing Standard-claiming implementations; documented in CONFORMANCE.md
+
+### Changed
+
+- **SPECIFICATION.md §3.2** — `CHECKPOINT` added to active record types table; `record_type` enum extended to three values
+- **SPECIFICATION.md §7.4** — Merkle requirement corrected from "Full" to "Standard"; placeholder "pending RFC" text removed
+- **SPECIFICATION.md §7.6** — API table extended with proof and consistency proof endpoints
+- **SPECIFICATION.md §13.1** — "Formal Merkle tree construction specification" removed from planned (it is now implemented); "Signed CHECKPOINT records" added as next planned item
+- **CONFORMANCE.md Standard** — five Merkle requirements added (sequence_number, Merkle tree computation, CHECKPOINT emission, inclusion proof API, inclusion proof verification)
+- **CONFORMANCE.md Full** — three Merkle requirements added (consistency proofs, real-time verification)
+- **`schema/ods_record_v2.json`** — `_schema_version` extended to accept `"2.1.0"` in addition to `"2.0.0"`; `record_type` enum extended to include `CHECKPOINT`; `sequence_number` property added; CHECKPOINT-specific schema block added
+- **`validator/validate.py`** — CHECKPOINT record type support; `sequence_number` validation; CHECKPOINT block field validation
+
+### Security note
+
+Unsigned CHECKPOINTs (v2.1.0 Standard) provide tamper-evidence but not tamper-proof attribution. Signed CHECKPOINTs deferred to a future RFC as a Full-level requirement.
+
+---
+
 ## [2.0.0] - 2026-05-09
 
 **v2.0.0 introduces the ODS Core + Profiles architecture.**
