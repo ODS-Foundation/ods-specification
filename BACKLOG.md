@@ -27,3 +27,31 @@ Each entry includes:
 - **Description**: ODS Core v2 provides `parent_id` as a top-level field semantically designed for OUTCOME records pointing to the DECISION they are outcomes of. Records that need to express other relations between records (e.g., a DECISION that clarifies, extends, or supersedes a prior DECISION; an attestation that references multiple parents) currently overload `parent_id` beyond its original intent. A proper solution is an optional `references[]` array, where each entry is `{ "record_id": "<uuid>", "relation": "<enum>" }` with enum values such as `outcomes_of`, `extends`, `supersedes`, `clarifies`, `attests_partial_outcome_of`. The existing `parent_id` would remain for backward compatibility and be defined as semantically equivalent to a single `references` entry with `relation: outcomes_of`.
 - **Candidate version**: v2.2.0 (additive, backward-compatible field addition)
 - **Status**: open
+
+### BACKLOG-003 — Counterfactual provenance fields (`methodology`, `evidence_quality`)
+
+- **Identified**: 2026-05-26, via Council re-analysis of pre-spec architectural notes
+- **Description**: ODS Core v2 `counterfactuals[]` items contain only `alternative_action` and `expected_outcome`. Records lack any indication of how the expected_outcome value was derived (expert estimate, observed analog, simulated, modeled via causal inference) or the epistemic quality of that derivation. Regulatory auditors evaluating ODS records under frameworks requiring "explainability of considered alternatives" (e.g., EU AI Act Article 13/14) need this distinction to assess record credibility. Candidate additions: `counterfactuals[].methodology` (enum, controlled vocabulary including but not limited to `propensity_score_matching`, `synthetic_control`, `observed_similar_case`, `simulation`, `expert_consensus`, `assumed`) and `counterfactuals[].evidence_quality` (enum: `observed | inferred | simulated | expert_estimate | assumed`).
+- **Candidate version**: v2.1
+- **Status**: `open`
+
+### BACKLOG-004 — `governance.generation_method` field
+
+- **Identified**: 2026-05-26
+- **Description**: ODS Core v2 has no field indicating how a record was produced. Distinguishing manual entry, semi-automated production (system + human review), fully automated emission (system action with logged justification), and simulated synthesis (synthetic for testing/training) is necessary for downstream conformance assessment. Auditors and verifiers should be able to filter or weight records by generation pathway. Candidate field: `governance.generation_method` (enum: `manual | semi_automated | automated | simulated`).
+- **Candidate version**: v2.1
+- **Status**: `open`
+
+### BACKLOG-005 — `cognition.actionable_until_utc` field for time-bounded decisions
+
+- **Identified**: 2026-05-26
+- **Description**: Many high-stakes decisions are valid only within a specific time window — after which the optimal choice changes or the decision becomes moot. ODS Core v2 captures decision timestamp (`timestamp_utc`) but has no field for time-criticality. An optional `cognition.actionable_until_utc` (ISO-8601 datetime) would let records express that the documented decision should be enacted before that point, enabling downstream measurement of decision-to-action latency vs. allowed window. Useful for fraud detection, healthcare emergency, supply chain disruption response, incident response, and similar time-sensitive domains.
+- **Candidate version**: v2.1
+- **Status**: `open`
+
+### BACKLOG-006 — Formal deprecation lifecycle with expiry enforcement
+
+- **Identified**: 2026-05-26
+- **Description**: ODS currently deprecates record formats and fields (e.g., v1.x → v2.0 transition documented in VERSIONING.md) without a formal lifetime policy. A deprecated feature can technically remain in use indefinitely. Mature standards bodies (SemVer ecosystem, Apache, IETF) typically require expiry windows for deprecations to force migration. Candidate additions to VERSIONING.md: (a) machine-readable registry of deprecated features in `DEPRECATIONS.json` with fields `feature_id`, `deprecated_in_version`, `removal_target_version`, `migration_path_url`; (b) CI gate that fails if a `removal_target_version` is reached but the feature is still present in normative artifacts; (c) maximum lifetime cap as policy (proposed: 3 minor versions or 18 months from deprecation announcement, whichever is later).
+- **Candidate version**: v2.1 (governance addition, non-breaking)
+- **Status**: `open`
