@@ -33,5 +33,9 @@ Going forward, significant architectural decisions are documented via ADR before
 | ID | Title | Status |
 |---|---|---|
 | ADR-0001 | Architecture: Core + Profiles Separation | Accepted (retrospective) |
+| ADR-0002 | Immutability via Append-Only + parent_id | Accepted (retrospective) |
+| ADR-0003 | Conformance Levels — Basic / Standard / Full | Accepted (retrospective) |
+| ADR-0004 | Profile Reservation Policy + Out-of-Scope List | Accepted (retrospective) |
+| ADR-0005 | Foundation-Style Governance Model | Accepted (retrospective) |
 
-Additional retrospective ADRs are planned for documentation in subsequent Council sessions: Immutability via append-only + parent_id, Conformance levels (Basic/Standard/Full), Profile reservation policy, Foundation-style governance model.
+The retrospective corpus documenting major ODS-Foundation architectural and governance decisions from inception through v2.0 is now complete. Going forward, significant architectural decisions are documented via ADR before implementation, not retrospectively.
