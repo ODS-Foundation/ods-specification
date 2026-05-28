@@ -117,6 +117,19 @@ The Technical Committee will publish a formal behavioral conformance test suite 
 
 ---
 
+## Operational Stance on Missing Records
+
+An adopting system claiming ODS conformance treats the absence of an ODS record, for any decision the adopter has committed to documenting via ODS, as a fault condition equivalent to silent execution failure.
+
+A conformant operational stance MUST surface missing in-scope records as system alerts, not as routine data quality observations. The distinction is semantic and operational:
+
+- **Treating absence as data quality**: missing records accumulate in monitoring dashboards, are reviewed in batch retrospectives, and may persist for weeks before triage. This stance is incompatible with ODS conformance claims.
+- **Treating absence as fault**: missing records trigger alerts at the same severity as silent execution failures. The adopting system architecturally guarantees that a state mutation within its declared ODS scope, without a corresponding record, is an audit failure, not a backlog item.
+
+This stance does not require any schema change. It is a conformance interpretation that distinguishes implementers treating ODS as audit-grade infrastructure from those treating it as logging convention.
+
+Rationale: regulatory frameworks evaluating decision systems (e.g., EU AI Act) expect the audit trail to be complete within its declared scope. An audit trail that tolerates indefinite gaps within its own scope fails the underlying assurance the standard exists to provide.
+
 ## Validator Behavior
 
 ### Core Validation
