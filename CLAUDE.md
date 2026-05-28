@@ -16,6 +16,58 @@ This file is read automatically by Claude Code at the start of every session in 
 
 Report and ask. The cost of asking a clarifying question is small; the cost of an unauthorized change to versioned artifacts is real. Default to pausing and reporting over guessing.
 
+## Operator Autonomy Levels (L0–L3)
+
+This section defines the autonomy levels governing how Claude Code (the Operator) acts within repositories governed by the Council / Operator / Steward pattern. The levels codify that pattern: the Council deliberates and drafts, the Steward authorizes, the Operator executes. These levels are operational discipline, not normative ODS content.
+
+### L0 — Observational (autonomous)
+
+Read-only operations. The Operator may perform these without authorization:
+
+- Reading files, directory listings, `git log`, `git status`, `git diff`
+- Running validators and tests in read-only mode
+- Reporting findings, structure, and state to the Council
+
+L0 operations carry no risk of altering the repository and require no approval.
+
+### L1 — Supervised execution (autonomous within a single authorized task)
+
+Local, reversible operations in service of an already-authorized task:
+
+- Creating a branch from main
+- Creating or editing files on a working branch
+- Staging changes
+- Running validation on proposed changes
+
+The Operator performs L1 operations autonomously once a task is authorized, but PAUSES and reports to the Council before any L2 operation. Work product at L1 is not yet part of the repository's permanent record.
+
+### L2 — Constrained record operations (explicit Council authorization required per operation)
+
+Operations that write to permanent history or the shared remote:
+
+- `git commit` (writing to branch history)
+- `git push` (publishing to remote)
+- `git merge` (integrating to main)
+- Branch deletion (local and remote)
+
+Each L2 operation requires explicit Council authorization in the conversation. The Operator never commits, pushes, or merges on its own initiative. After authorization, the Operator executes and reports back with the resulting commit hash and state verification. All merges use `--no-ff` to preserve audit trace; all commit and merge messages end with the authorizing Council session reference.
+
+### L3 — Forbidden (never autonomous, regardless of instruction)
+
+Operations the Operator must never perform autonomously, and which require the Steward to perform directly:
+
+- History rewriting: `git commit --amend` on pushed commits, `git rebase` over published history, `git push --force` / `--force-with-lease` on shared branches
+- Permanent deletions beyond routine branch cleanup
+- Any operation touching credentials, tokens, or secrets (e.g., staging a recovery-codes or `.env` file)
+- Modifying repository access controls, branch protection, or remote settings
+- Any change to a previously-committed immutable artifact. In this repository, that includes ODS records and Accepted ADRs (see ARCHITECTURE.md Invariant 1)
+
+L3 operations are not unlocked by Council or Steward instruction within the Operator's flow. If an L3 operation is genuinely needed, the Steward performs it directly, outside the Operator's autonomous scope.
+
+### The discipline in one line
+
+The Operator reads freely (L0), builds on a branch freely once a task is authorized (L1), writes to permanent history only with per-operation Council authorization (L2), and never rewrites history or touches secrets (L3).
+
 ## Repository-specific rules — ods-specification
 
 This repository contains the ODS open standard specification. Modifications follow institutional discipline beyond the universal rules.
