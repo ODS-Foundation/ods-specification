@@ -48,3 +48,9 @@ Desktop.ini
 *.tmp
 *.bak
 *.orig
+
+# Local credential / secret files — never commit
+*recovery-codes*
+*-credentials.*
+*.pem
+*.key
