@@ -181,7 +181,7 @@ Any sector where a decision has consequences — and someone, eventually, will n
 
 ## Reference Implementation
 
-The first Full-conformance implementation is **ORPI Decision Vault™** by ORPI Systems.
+ODS has an open reference implementation — **[ORPI Decision Vault™](https://github.com/ODS-Foundation/ods-reference-implementation)** by ORPI Systems — that validates against the standard's own schema and provides working patterns for Full-conformance adoption.
 
 - 1,786 decisions logged and verified in production
 - Append-only storage with SHA-256 chain verification
