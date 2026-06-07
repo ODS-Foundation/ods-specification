@@ -31,4 +31,5 @@ jobs:
 
       - name: Run gitleaks
         # exit code 1 si encuentra secretos -> falla el job
-        run: gitleaks git --source . --redact --verbose
+        # (en gitleaks 8.x el repo es argumento posicional, no --source)
+        run: gitleaks git . --redact --verbose
