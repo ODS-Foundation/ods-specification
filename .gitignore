@@ -54,3 +54,6 @@ Desktop.ini
 *-credentials.*
 *.pem
 *.key
+
+# Claude Code local settings (machine-specific, never commit)
+.claude/settings.local.json
