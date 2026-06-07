@@ -1,0 +1,35 @@
+# Secret scanning — Capa 2 (CI, en cada push y PR)
+# Usa el binario oficial de gitleaks (NO gitleaks-action, que exige
+# GITLEAKS_LICENSE en repos de organización). El binario es libre.
+name: gitleaks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  scan:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.30.1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historial completo: escanea todos los commits
+
+      - name: Install gitleaks
+        run: |
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o gitleaks.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
+          rm -f gitleaks.tar.gz gitleaks
+          gitleaks version
+
+      - name: Run gitleaks
+        # exit code 1 si encuentra secretos -> falla el job
+        # (en gitleaks 8.x el repo es argumento posicional, no --source)
+        run: gitleaks git . --redact --verbose
