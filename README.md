@@ -41,7 +41,7 @@ ODS addresses this gap with a single, open, neutral specification.
 | **Conformance Levels** | Three tiers — Basic, Standard, Full — for graduated adoption |
 | **Validator** | An executable schema validator (`validator/validate.py`) |
 | **Governance** | RFC process, versioning policy, and stability guarantees |
-| **Reference Implementation** | ORPI Decision Vault™ — first Full-conformance implementation |
+| **Reference Implementation** | ORPI Decision Vault — reference implementation of ODS Core v2.0.0 |
 
 ---
 
@@ -181,14 +181,14 @@ Any sector where a decision has consequences — and someone, eventually, will n
 
 ## Reference Implementation
 
-ODS has an open reference implementation — **[ORPI Decision Vault™](https://github.com/ODS-Foundation/ods-reference-implementation)** by ORPI Systems — that validates against the standard's own schema and provides working patterns for Full-conformance adoption.
+ODS has an open reference implementation — **[ORPI Decision Vault](https://github.com/ODS-Foundation/ods-reference-implementation)** — a small, faithful implementation of ODS Core v2.0.0. Records written by it validate against the standard's own JSON Schema using the standard's own validator.
 
-- 1,786 decisions logged and verified in production
-- Append-only storage with SHA-256 chain verification
-- Complete meta-learning framework (DPI, CFR, Learning Velocity)
-- Real-time governance and compliance reporting
+- Append-only storage with write-once enforcement and SHA-256 hash-chain integrity
+- Independent ledger verification: schema, temporal order, tamper detection, chain continuity
+- Counterfactual capture (no decision without its alternative) and outcome linkage via separate OUTCOME records
+- Distilled from the original ORPI Decision Vault; the private system's trading and strategy logic is not part of this repository
 
-For implementation partnerships, contact ORPI Systems.
+See the [reference implementation](https://github.com/ODS-Foundation/ods-reference-implementation) to read, run, and verify it yourself.
 
 ---
 
