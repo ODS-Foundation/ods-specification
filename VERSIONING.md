@@ -127,9 +127,9 @@ Conformance is declared as a two-axis statement: core level + optional profile l
 
 v2.0.0 introduced the ODS Core + Profiles architecture and the domain-agnostic core. v2.0.0 records remain valid and are forward-compatible with v2.1.0; the Merkle log begins at the first post-upgrade write, so pre-v2.1.0 records are Merkle-ineligible. New implementations SHOULD target v2.1.0.
 
-### v1.1.0 — Legacy (read-only)
+### v1.1.0 — Earlier stable release
 
-v1.1.0 is a legacy release. Its records remain valid and need not be re-logged, but it is superseded by the v2.x core. The reference validator targets the v2.x core schema only; v1.1.0 records are not validated by the reference implementation. New implementations SHOULD target v2.x.
+v1.1.0 remains a valid release. v1.1.0 records need not be re-logged; v2.x implementations SHOULD support reading both schema versions. New implementations SHOULD target v2.1.0. The reference validator (`validator/validate.py`) targets the v2.x core schema; the historical v1.x schema (`schema/ods_record_v1.json`) remains in the repository for v1.1.0 records.
 
 See [CHANGELOG.md](./CHANGELOG.md) for the migration path from v1.1.0 to v2.x.
 

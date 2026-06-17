@@ -8,7 +8,7 @@
 
 > **The open standard for institutional decision memory.**
 
-> **Current version: v2.1.0** — adds the normative Merkle tree construction (RFC 6962), the CHECKPOINT record type, and stored-mode sequencing, on top of the ODS Core + Profiles architecture from v2.0.0. Finance-domain fields live in the ODS-Finance/v1 profile; the core specification is domain-agnostic. v1.1.0 is a legacy read-only release — its records remain valid, but the reference validator targets the v2.x core schema. v1.0 is deprecated and must not be implemented. See [CHANGELOG.md](./CHANGELOG.md) for full history.
+> **Current version: v2.1.0** — adds the normative Merkle tree construction (RFC 6962), the CHECKPOINT record type, and Merkle verification at Standard conformance, building on the v2.0.0 Core + Profiles architecture. v2.0.0 and v1.1.0 records remain valid; see [CHANGELOG.md](./CHANGELOG.md) for history and migration. v1.0 is deprecated and must not be implemented.
 
 ODS defines the schema, governance, and verification model for organizations to capture, audit, and learn from their decisions over time.
 
