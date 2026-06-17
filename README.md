@@ -1,14 +1,14 @@
 # Operational Decision Standard (ODS)
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.1.0-green.svg)](./CHANGELOG.md)
 [![Status](https://img.shields.io/badge/status-Stable-success.svg)](./SPECIFICATION.md)
 [![Conformance](https://img.shields.io/badge/conformance-Core%20%2B%20Profiles-orange.svg)](./CONFORMANCE.md)
 [![Validator](https://img.shields.io/badge/validator-executable-blueviolet.svg)](./validator/)
 
 > **The open standard for institutional decision memory.**
 
-> **Current version: v2.0.0** — introduces the ODS Core + Profiles architecture. Finance-domain fields are now in ODS-Finance/v1 profile; the core specification is domain-agnostic. v1.1.0 records remain valid; see [CHANGELOG.md](./CHANGELOG.md) for the migration path. v1.0 is deprecated and must not be implemented.
+> **Current version: v2.1.0** — adds the normative Merkle tree construction (RFC 6962), the CHECKPOINT record type, and stored-mode sequencing, on top of the ODS Core + Profiles architecture from v2.0.0. Finance-domain fields live in the ODS-Finance/v1 profile; the core specification is domain-agnostic. v1.1.0 is a legacy read-only release — its records remain valid, but the reference validator targets the v2.x core schema. v1.0 is deprecated and must not be implemented. See [CHANGELOG.md](./CHANGELOG.md) for full history.
 
 ODS defines the schema, governance, and verification model for organizations to capture, audit, and learn from their decisions over time.
 
@@ -49,7 +49,7 @@ ODS addresses this gap with a single, open, neutral specification.
 
 | Document | Purpose |
 |----------|---------|
-| [SPECIFICATION.md](./SPECIFICATION.md) | Complete v2.0.0 technical specification |
+| [SPECIFICATION.md](./SPECIFICATION.md) | Complete v2.1.0 technical specification |
 | [PROFILES.md](./PROFILES.md) | Profile registry, authoring bar, and conformance rules |
 | [CONFORMANCE.md](./CONFORMANCE.md) | Two-axis conformance levels and verification |
 | [IMPLEMENTATION.md](./IMPLEMENTATION.md) | Developer guide with code examples |
@@ -224,9 +224,9 @@ The Technical Committee makes final decisions on RFC acceptance, major versions,
 
 ## Roadmap
 
-**v2.0.0 (current)** — ODS Core + Profiles architecture; ODS-Finance/v1 first authored profile; domain-agnostic core
-**v2.1 (planned)** — CORRECTION/ANNOTATION record types, empirically validated DPI weights, ODS-Healthcare/v1 RFC
-**v2.x (roadmap)** — causal inference integration, cross-organizational benchmarking, AI explainability alignment
+**Released** — v2.1.0 (Merkle RFC 6962, CHECKPOINT), v2.0.0 (Core + Profiles, ODS-Finance/v1), v1.1.0 (event sourcing, JCS)
+**Next** — signed CHECKPOINT records; empirical DPI weight validation; `references[]` field; a second authored profile (ODS-Healthcare/v1 candidate)
+**Exploration** — ODS-Edge: verifiable records from untrusted edge AI systems (hardware-trust dependency; expertise-seeking)
 
 Full plan in [ROADMAP.md](./ROADMAP.md).
 

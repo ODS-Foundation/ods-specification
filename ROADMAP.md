@@ -1,107 +1,78 @@
 # ODS Roadmap
 
-This document outlines the planned evolution of the Operational Decision Standard.
-
-The roadmap is organized in phases, not fixed dates. The Foundation prioritizes quality and real-world feedback over arbitrary timelines.
-
----
-
-## Current Phase: Foundation (v1.0 — Released)
-
-**Status:** Published
-
-The Foundation phase establishes the core specification and reference tooling.
-
-Delivered:
-- ✅ v1.0 specification (seven-layer schema)
-- ✅ Three conformance levels (Basic, Standard, Full)
-- ✅ Six core principles (immutability, verifiability, attribution, temporal integrity, explainability, outcome tracking)
-- ✅ Cryptographic verification model (SHA-256, Merkle trees)
-- ✅ Reference implementation (ORPI Decision Vault™)
-- ✅ Executable validator (`validator/validate.py`)
-- ✅ Governance model and RFC process
-- ✅ Versioning and compatibility policies
-- ✅ Apache 2.0 license
+This document describes what ODS has released, what is committed next, and what
+is under exploration. It is organized by maturity, not dates: the Foundation
+prioritizes quality and real-world feedback over fixed timelines. A roadmap is a
+promise — so items appear here only at the confidence level their tier states.
 
 ---
 
-## Phase 2: Interoperability (v1.1 — Q3 2026)
+## Released
 
-**Status:** Planned
+Shipped and verifiable against the published specification and validator.
 
-The Interoperability phase strengthens ecosystem compatibility and broadens the spec's applicability.
+- **v2.1.0 — 2026-05-19.** Normative Merkle tree construction (RFC 6962); the
+  `CHECKPOINT` record type and store-assigned `sequence_number`; Merkle
+  verification promoted from Full to Standard conformance; inclusion and
+  consistency proof APIs.
+- **v2.0.0 — 2026-05-09.** ODS Core + Profiles architecture; domain-neutral core;
+  `ODS-Finance/v1` as the first authored profile.
+- **v1.1.0 — 2026-05-08.** Event-sourcing semantics (append-only log; OUTCOME
+  records linked by `parent_id`, never mutating the DECISION); RFC 8785 (JCS)
+  canonicalization for `policy_hash`; formal metric definitions. Deprecated v1.0.
 
-Planned additions:
-
-### Schema Extensions (Optional)
-- **Multi-party decisions** — committee, board, and panel decisions where multiple actors share responsibility
-- **Hierarchical decisions** — parent/child decision relationships for delegated authority
-- **Privacy-preserving fields** — zero-knowledge friendly representations for sensitive contexts
-
-### Verification Enhancements
-- **Streaming verification** — protocols for real-time decision streams
-- **Cross-implementation verification** — proofs that travel between ODS implementations
-- **Attestation profiles** — signed conformance claims from third parties
-
-### Tooling
-- **Richer validator errors** — structured error reports with remediation hints
-- **CLI tool** — installable Python package with `ods` command-line interface
-- **Schema migration tooling** — automated upgrades between minor versions
-- **Conformance test suite** — comprehensive test cases for all three levels
-
-### Documentation
-- **Industry-specific extensions** — guidance for finance, healthcare, supply chain, government
-- **Pattern catalog** — common implementation patterns and anti-patterns
-- **Translated specification** — community-driven translations of core documents
+A reference implementation (ORPI Decision Vault) tracks the published Core; its
+records validate against the standard's own schema using the standard's own
+validator.
 
 ---
 
-## Phase 3: Ecosystem Expansion (v2.0 — 2027)
+## Next
 
-**Status:** Long-term planning
+Committed directions, RFC-driven, with no fixed dates (per the versioning
+policy's no-cadence principle). Each proceeds through the RFC process before
+release.
 
-The Ecosystem Expansion phase brings ODS into deeper integration with adjacent infrastructure.
-
-Planned directions:
-
-### Causal Inference Integration
-- **Causal layer** — explicit causal graphs alongside decision records
-- **Counterfactual generation** — standardized methods for generating alternatives
-- **Treatment effect tracking** — attribution of outcomes to specific decision factors
-
-### Cross-Organizational Capabilities
-- **Decision benchmarking** — privacy-preserving comparison across organizations
-- **Shared learning protocols** — federated improvement of decision quality
-- **Industry consortia support** — shared schemas for sector-specific decisions
-
-### Security and Trust
-- **Adversarial decision detection** — identifying decisions made under coercion or manipulation
-- **Hardware-backed attestation** — TPM and HSM-based integrity proofs
-- **Formal verification** — machine-checkable conformance proofs
-
-### Infrastructure Integration
-- **Blockchain interoperability** — optional anchoring of Merkle roots to public ledgers
-- **AI explainability standards** — alignment with emerging XAI standards
-- **Streaming platforms** — Kafka, Pulsar, and similar streaming integrations
+- **Signed CHECKPOINT records.** v2.1.0 CHECKPOINTs are unsigned: tamper-evident
+  but not tamper-proof in attribution. Signed CHECKPOINTs are the next planned
+  addition, targeted as a Full-conformance requirement.
+- **Empirical DPI weight validation.** The Decision Process Integrity component
+  weights are provisional and were committed for empirical revision via RFC.
+- **`references[]` field.** A field allowing a decision record to reference
+  related records, for cross-decision linkage (BACKLOG-002).
+- **A second authored profile.** To demonstrate the Core + Profiles model beyond
+  finance, via RFC. `ODS-Healthcare/v1` is the leading candidate.
+- **CORRECTION / ANNOTATION record types** *(RFC candidate)* — append-only ways
+  to correct or annotate the record graph without mutating prior records.
 
 ---
 
-## Phase 4: Maturity (v2.x — Beyond)
+## Exploration
 
-**Status:** Vision
+Directions under active consideration. These are not commitments, carry no
+version or date, and are stated here to invite the expertise they require.
 
-The Maturity phase is what ODS looks like when it has fully entered the infrastructure category.
+- **ODS-Edge.** Extending verifiable decision records to AI systems that operate
+  on third-party edge devices — vehicles, robots, medical equipment — where the
+  recording device cannot be assumed trustworthy. The approach builds on the
+  existing Merkle/CHECKPOINT substrate (local hash chains anchored periodically to
+  an external append-only store), but a full integrity guarantee depends on
+  hardware-rooted trust (secure element / TEE) and specialized security
+  expertise that the project does not yet have in place. We are seeking RFC
+  proposals and contributors in this area. Until that expertise is engaged,
+  ODS-Edge remains exploratory by design — a hard frontier named honestly, not a
+  promised feature.
 
-Indicators of maturity:
+---
 
-- Multiple independent implementations across major sectors
-- Third-party certification ecosystem
-- Regulatory recognition in at least one major jurisdiction
-- Integration into enterprise governance products
-- Cross-sector decision benchmarking platforms
-- Established academic and research communities
+## Other directions
 
-The Foundation does not attempt to predict timing for this phase. It will arrive when the ecosystem is ready.
+Capabilities raised in discussion but not on the committed roadmap — including
+public-ledger anchoring, federated learning, formal verification, streaming-
+platform integrations, zero-knowledge fields, and multi-party or hierarchical
+decision structures — are tracked through the [RFC process](./rfcs/README.md),
+not promised here. They advance only if and when a concrete RFC and real-world
+need support them.
 
 ---
 
@@ -109,42 +80,31 @@ The Foundation does not attempt to predict timing for this phase. It will arrive
 
 ODS deliberately does not include:
 
-- **Decision-making algorithms** — ODS records decisions; it does not prescribe how to make them
-- **Specific storage technologies** — ODS is storage-agnostic
-- **User interfaces** — ODS is a data and verification standard, not a UI standard
-- **Authentication systems** — ODS records actor identifiers but does not standardize identity
-- **Sector-specific regulations** — ODS supports compliance but does not replace regulatory frameworks
+- **Decision-making algorithms** — ODS records decisions; it does not prescribe
+  how to make them.
+- **Specific storage technologies** — ODS is storage-agnostic.
+- **User interfaces** — ODS is a data and verification standard.
+- **Authentication systems** — ODS records actor identifiers but does not
+  standardize identity.
+- **Sector-specific regulations** — ODS supports compliance; it does not replace
+  regulatory frameworks.
 
-The standard's value comes from being **focused** and **interoperable**.
-
----
-
-## How to Contribute to the Roadmap
-
-The roadmap is shaped by community input through:
-
-- **RFCs** — propose new capabilities through the [RFC process](./rfcs/README.md)
-- **Issues** — flag gaps and missing capabilities
-- **Discussions** — explore ideas before formalizing them as RFCs
-- **Implementation feedback** — real-world experience shapes priorities
-
-The Technical Committee reviews roadmap items at least quarterly.
+The standard's value comes from being focused and interoperable.
 
 ---
 
-## Phase Transitions
+## How items move between tiers
 
-Each phase ends when:
-1. Core deliverables are released
-2. Adoption indicators show readiness for the next phase
-3. The Technical Committee approves the transition
-
-There is no schedule pressure to advance phases. The Foundation moves when the ecosystem is ready.
+Exploration → Next → Released is driven by the RFC process: a concrete proposal,
+public review, Technical Committee evaluation of impact (breaking/additive/
+clarifying), and implementation in an appropriate release. There is no schedule
+pressure; items advance when reviewed, accepted, and ready.
 
 ---
 
 ## See Also
 
+- [CHANGELOG.md](./CHANGELOG.md) — full release history
 - [VERSIONING.md](./VERSIONING.md) — how versions are numbered and decided
 - [COMPATIBILITY.md](./COMPATIBILITY.md) — what stays stable across versions
 - [GOVERNANCE.md](./GOVERNANCE.md) — how decisions are made
