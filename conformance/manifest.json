@@ -1,0 +1,67 @@
+{
+  "suite": "ods-conformance",
+  "suite_version": "0.1.0",
+  "spec_version": "2.1.0",
+  "fixtures": [
+    {
+      "file": "fixtures/core/basic/valid/core-only-decision.json",
+      "level": "Core Basic",
+      "mode": "core",
+      "expect": "accept",
+      "clause": "CONFORMANCE.md \u00a7Basic \u2014 core-only governance DECISION is valid",
+      "rationale": "Governance-only DECISION with no action and no profile validates against the core schema."
+    },
+    {
+      "file": "fixtures/core/basic/valid/core-only-decision-v210.json",
+      "level": "Core Basic",
+      "mode": "core",
+      "expect": "accept",
+      "clause": "SPECIFICATION.md \u00a7_schema_version \u2014 2.1.0 accepted",
+      "rationale": "Core-only DECISION at _schema_version 2.1.0 validates against the core schema."
+    },
+    {
+      "file": "fixtures/core/basic/invalid/decision-with-outcomes.json",
+      "level": "Core Basic",
+      "mode": "core",
+      "expect": "reject",
+      "clause": "CONFORMANCE.md \u00a7Basic / SPECIFICATION.md \u2014 DECISION MUST NOT contain an 'outcomes' field",
+      "rationale": "Outcomes are expressed only via linked OUTCOME records; an embedded 'outcomes' field must be rejected."
+    },
+    {
+      "file": "fixtures/core/basic/invalid/reserved-record-type.json",
+      "level": "Core Basic",
+      "mode": "core",
+      "expect": "reject",
+      "clause": "SPECIFICATION.md \u00a7record_type \u2014 reserved/unknown record_type MUST be rejected",
+      "rationale": "record_type is an enum of DECISION|OUTCOME|CHECKPOINT; any other value must be rejected."
+    },
+    {
+      "file": "fixtures/core/basic/invalid/missing-record-id.json",
+      "level": "Core Basic",
+      "mode": "core",
+      "expect": "reject",
+      "clause": "Core schema \u2014 required field 'record_id' MUST be present",
+      "rationale": "record_id is a required identity-envelope field."
+    },
+    {
+      "file": "fixtures/core/basic/invalid/v1-schema-version.json",
+      "level": "Core Basic",
+      "mode": "core",
+      "expect": "reject",
+      "clause": "Core schema \u2014 _schema_version MUST be a supported v2.x value",
+      "rationale": "The v2.x core schema accepts only 2.0.0 and 2.1.0; legacy 1.1.0 records are not validated by the reference validator."
+    },
+    {
+      "file": "fixtures/core/basic/invalid/action-without-profile.json",
+      "level": "Core Basic",
+      "mode": "core",
+      "expect": "reject",
+      "clause": "CONFORMANCE.md \u00a7Basic \u2014 E4: a DECISION with an 'action' section MUST carry a 'profile' field",
+      "rationale": "Operational (action-bearing) decisions must declare a domain profile."
+    }
+  ],
+  "not_covered_v1": [
+    "Write-time behavioral invariants (Layer 2): store-assigned sequence_number, client sequence_number rejection, write-time FINAL rejection, append-only enforcement.",
+    "Profile-level conformance beyond core (Layer 3) ships in a later sub-delivery."
+  ]
+}
