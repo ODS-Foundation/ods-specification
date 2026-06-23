@@ -1,6 +1,6 @@
 # DESIGN-MEMO-003 — Conformance Suite (Layer 1 + Layer 3)
 
-**Status:** DRAFT
+**Status:** FINAL (Steward-approved 2026-06-23)
 **Date:** 2026-06-23
 **Author:** Council
 **Affects:** CONFORMANCE (operationalizes), IMPLEMENTATION (new tooling), GOVERNANCE (certification)
