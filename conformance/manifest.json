@@ -1,7 +1,8 @@
 {
   "suite": "ods-conformance",
-  "suite_version": "0.1.0",
+  "suite_version": "0.2.0",
   "spec_version": "2.1.0",
+  "scope": "statically-decidable clauses",
   "fixtures": [
     {
       "file": "fixtures/core/basic/valid/core-only-decision.json",
@@ -58,10 +59,147 @@
       "expect": "reject",
       "clause": "CONFORMANCE.md \u00a7Basic \u2014 E4: a DECISION with an 'action' section MUST carry a 'profile' field",
       "rationale": "Operational (action-bearing) decisions must declare a domain profile."
+    },
+    {
+      "file": "fixtures/core/standard/store/valid/first-final-outcome.json",
+      "level": "Core Standard",
+      "mode": "store",
+      "store": "fixtures/stores/parent-only",
+      "expect": "accept",
+      "clause": "CONFORMANCE.md \u00a7Standard \u2014 first FINAL OUTCOME for a parent in the store is valid",
+      "rationale": "A FINAL OUTCOME whose parent_id exists in the store and which has no prior FINAL is accepted."
+    },
+    {
+      "file": "fixtures/core/standard/store/invalid/orphan-parent.json",
+      "level": "Core Standard",
+      "mode": "store",
+      "store": "fixtures/stores/parent-only",
+      "expect": "reject",
+      "clause": "SPECIFICATION.md / validator store invariant \u2014 OUTCOME parent_id MUST reference an existing record",
+      "rationale": "An OUTCOME whose parent_id is not present in the store must be rejected."
+    },
+    {
+      "file": "fixtures/core/standard/store/invalid/second-final-outcome.json",
+      "level": "Core Standard",
+      "mode": "store",
+      "store": "fixtures/stores/parent-with-final",
+      "expect": "reject",
+      "clause": "CONFORMANCE.md \u00a7Standard \u2014 FINAL uniqueness: only one FINAL OUTCOME per parent chain",
+      "rationale": "A second FINAL OUTCOME for a parent that already has a FINAL must be rejected."
+    },
+    {
+      "file": "fixtures/core/standard/stored/valid/with-sequence-number.json",
+      "level": "Core Standard",
+      "mode": "stored",
+      "expect": "accept",
+      "clause": "CONFORMANCE.md \u00a7Standard (v2.1.0+) \u2014 stored record carries store-assigned sequence_number",
+      "rationale": "In stored mode, a record bearing a sequence_number is valid."
+    },
+    {
+      "file": "fixtures/core/standard/stored/invalid/missing-sequence-number.json",
+      "level": "Core Standard",
+      "mode": "stored",
+      "expect": "reject",
+      "clause": "CONFORMANCE.md \u00a7Standard (v2.1.0+) \u2014 stored records MUST carry a sequence_number",
+      "rationale": "In stored mode, a record missing sequence_number must be rejected."
     }
   ],
-  "not_covered_v1": [
-    "Write-time behavioral invariants (Layer 2): store-assigned sequence_number, client sequence_number rejection, write-time FINAL rejection, append-only enforcement.",
-    "Profile-level conformance beyond core (Layer 3) ships in a later sub-delivery."
+  "not_covered": [
+    {
+      "level": "Core Standard",
+      "clause": "Reject client-submitted sequence_number (submitted representation)",
+      "category": "behavioral (Layer 2)",
+      "reason": "Write-time store behavior; the static validator accepts a submitted sequence_number, so this cannot be decided statically."
+    },
+    {
+      "level": "Core Standard",
+      "clause": "Writes OUTCOME records when outcomes are realized",
+      "category": "behavioral (Layer 2)",
+      "reason": "Runtime write behavior, not a static record property."
+    },
+    {
+      "level": "Core Standard",
+      "clause": "Canonical read protocol and GET /records/{id}/state API",
+      "category": "behavioral (Layer 2)",
+      "reason": "Runtime API behavior."
+    },
+    {
+      "level": "Core Standard",
+      "clause": "Per-record SHA-256 via RFC 8785 (JCS) at write",
+      "category": "behavioral (Layer 2)",
+      "reason": "Write-time integrity computation; not present as a static record field in fixtures."
+    },
+    {
+      "level": "Core Standard",
+      "clause": "Record retention >= 7 years",
+      "category": "behavioral (policy)",
+      "reason": "Operational retention policy, not statically decidable."
+    },
+    {
+      "level": "Core Standard",
+      "clause": "Third-party audit access to records and state API",
+      "category": "behavioral (Layer 2)",
+      "reason": "Runtime access capability."
+    },
+    {
+      "level": "Core Standard",
+      "clause": "Merkle tree computation per RFC 6962 \u00a72.1 / SPECIFICATION \u00a77.7",
+      "category": "behavioral (Layer 2)",
+      "reason": "Requires the implementation to expose its tree; needs the Layer 2 adapter."
+    },
+    {
+      "level": "Core Standard",
+      "clause": "CHECKPOINT emission cadence (>= every 1000 records or 24h)",
+      "category": "behavioral (Layer 2)",
+      "reason": "Runtime cadence behavior."
+    },
+    {
+      "level": "Core Standard",
+      "clause": "Inclusion proof API GET /records/{id}/proof and verification",
+      "category": "behavioral (Layer 2)",
+      "reason": "Runtime API + proof verification against checkpoint roots."
+    },
+    {
+      "level": "Core Full",
+      "clause": "Counterfactual capture on DECISION records",
+      "category": "behavioral (Layer 2)",
+      "reason": "Capture behavior; presence alone does not establish conformance."
+    },
+    {
+      "level": "Core Full",
+      "clause": "DPI, CFR, Learning Velocity computation (SPECIFICATION \u00a76)",
+      "category": "behavioral (Layer 2)",
+      "reason": "Metric computation behavior, not a static record property."
+    },
+    {
+      "level": "Core Full",
+      "clause": "Real-time governance/compliance signaling",
+      "category": "behavioral (Layer 2)",
+      "reason": "Runtime signaling behavior."
+    },
+    {
+      "level": "Core Full",
+      "clause": "Permanent retention",
+      "category": "behavioral (policy)",
+      "reason": "Operational retention policy."
+    },
+    {
+      "level": "Core Full",
+      "clause": "Consistency proof generation/verification (RFC 6962 \u00a72.1.2)",
+      "category": "behavioral (Layer 2)",
+      "reason": "Requires the implementation to expose checkpoints and proofs; needs the Layer 2 adapter."
+    },
+    {
+      "level": "Core Full",
+      "clause": "Real-time Merkle verification on ingest",
+      "category": "behavioral (Layer 2)",
+      "reason": "Runtime ingest-time behavior."
+    },
+    {
+      "level": "Profile (all)",
+      "clause": "ODS-Finance/v1 profile conformance and OUTCOME profile consistency (C4)",
+      "category": "Layer 3 (later static sub-delivery)",
+      "reason": "Profile-level static fixtures ship in SD-3."
+    }
   ]
 }

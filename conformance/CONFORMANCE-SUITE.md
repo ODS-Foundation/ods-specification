@@ -5,19 +5,43 @@ implementation runs the suite and obtains a report stating which core/profile le
 satisfies, traceable to the specific normative clauses exercised. Governed by
 DESIGN-MEMO-003.
 
-This is the first sub-delivery (SD-1): the runner and a Layer 1, Core Basic fixture slice.
-Later sub-deliveries add the rest of Layer 1 (Standard/Full, store-level, Merkle) and
-Layer 3 (ODS-Finance profile fixtures).
+## Honest scope (read this first)
+
+The suite tests **statically-decidable clauses only** — clauses that can be decided by
+validating records (and small record stores) against the reference validator. Many
+Standard and Full requirements are **behavioral** (runtime APIs, retention, CHECKPOINT
+cadence, metric computation, Merkle proof generation/verification, real-time signaling) and
+**cannot** be decided statically. The report therefore:
+
+- labels every level verdict with the scope qualifier, e.g. `Core Standard
+  (statically-decidable clauses): PASS`, and
+- enumerates every behavioral clause in a machine-readable `not_covered` list.
+
+A passing static report is necessary but **not sufficient** for a full Standard/Full
+conformance claim. The behavioral remainder is certified by the Layer 2 (write-time)
+suite, which is the next normative item after the static suite (see DESIGN-MEMO-003
+Addendum 2026-06-24).
+
+## Sub-deliveries
+
+- **SD-1** — runner + Layer 1 Core Basic fixture slice.
+- **SD-2** — Layer 1 Core Standard static clauses: store-level invariants (parent_id
+  existence, FINAL uniqueness) and stored-mode `sequence_number` (required/accepted).
+- **SD-3** — Layer 3 profile fixtures (ODS-Finance/v1) incl. OUTCOME profile consistency (C4).
 
 ## What it tests
 
 - **Layer 1 — record & store conformance (static fixtures).** Each fixture is a real ODS
-  record that the reference validator (`validator/validate.py`) MUST accept or MUST reject.
-- **Layer 3 — profile conformance.** Profile fixtures, later sub-delivery.
+  record (or candidate validated against a small store) that the reference validator
+  (`validator/validate.py`) MUST accept or MUST reject.
+- **Layer 3 — profile conformance.** Ships in SD-3.
 
-Write-time behavioral invariants (Layer 2 — store-assigned `sequence_number`, write-time
-FINAL rejection, append-only enforcement) are **not** covered by the static suite. The
-report lists them explicitly under `not_covered` so a result never overstates what it proves.
+## Fixture modes
+
+- `core` — `validate.py <candidate>`
+- `stored` — `validate.py --stored <candidate>` (stored records MUST carry `sequence_number`)
+- `store` — `validate.py --store <store_dir> <candidate>`; the candidate lives **outside**
+  the store directory, which holds the pre-existing records.
 
 ## How to run
 
@@ -26,40 +50,33 @@ python conformance/runner/run_conformance.py
 ```
 
 Options:
-- `--level "Core Basic"` — run only fixtures for one level.
+- `--level "Core Standard"` — run only fixtures for one level.
 - `--report PATH` — write the canonical JSON report to PATH.
-
-The runner drives the validator over `manifest.json` and reports per-level and per-clause
-results, plus a SHA-256 fingerprint of the canonical report.
 
 ## Exit-code contract
 
-The validator under test returns: `0` accept, `1` clean record-level reject, other (e.g.
-`2`) operational error. A fixture **passes** when the observed outcome equals its declared
-`expect`. A reject fixture that yields an operational error is an **ERROR**, not a pass — a
-clean rejection is required. The runner exits `0` only if every in-scope fixture passes.
+The validator returns: `0` accept, `1` clean reject, other (e.g. `2`) operational error. A
+fixture passes when the observed outcome equals its declared `expect`. A reject fixture that
+yields an operational error is an ERROR, not a pass. The runner exits `0` only if every
+in-scope fixture passes.
 
 ## The manifest
 
-`manifest.json` maps each fixture to `{ file, level, mode, expect, clause, rationale }`.
-Fixtures are kept free of test metadata so they remain usable as real examples; the manifest
-carries the test semantics and makes clause coverage auditable.
+`manifest.json` maps each fixture to `{ file, level, mode, expect, clause, rationale }`
+(plus `store` for store-mode fixtures). It also carries the structured `not_covered` list:
+each entry is `{ level, clause, category, reason }`, where `category` is
+`behavioral (Layer 2)`, `behavioral (policy)`, or `Layer 3 (later static sub-delivery)`.
 
 ## The report and its fingerprint
 
-The JSON report is emitted in deterministic, canonicalizable form (sorted keys, compact
-separators, UTF-8) and contains no timestamps, hostnames, or absolute paths. Its SHA-256 is
-therefore a reproducible fingerprint: two runs against the same code and fixtures produce
-byte-identical reports and the same digest. The digest printed by the runner equals
-`sha256sum` of the `--report` file.
-
-A full ODS-style verifiable-artifact form of the report (attestation/checkpoint model, not a
-DECISION) is deferred to a later version per DESIGN-MEMO-003 §7.
+The JSON report is deterministic (sorted keys, compact separators, UTF-8) and contains no
+timestamps, hostnames, or absolute paths. Its SHA-256 is a reproducible fingerprint and
+equals `sha256sum` of the `--report` file. A full ODS-style verifiable-artifact form of the
+report (attestation/checkpoint model, not a DECISION) is deferred per DESIGN-MEMO-003 §7.
 
 ## Declaring conformance
 
-A passing report for a level demonstrates conformance to that level's **testable** clauses
-as exercised by the in-scope fixtures. State the suite version and the report SHA-256 with
-any conformance claim, and note that write-time (Layer 2) clauses are out of scope for the
-static suite. Example: "ODS Core v2 Basic — conformance suite v0.1.0, report
-SHA-256 `<digest>` (static/Layer 1)."
+State the suite version, the report SHA-256, and the scope qualifier with any claim, e.g.
+"ODS Core v2 Standard (statically-decidable clauses) — conformance suite v0.2.0, report
+SHA-256 `<digest>`". Do not drop the qualifier: it is what keeps the claim honest until the
+Layer 2 behavioral suite lands.
