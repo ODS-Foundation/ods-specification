@@ -121,3 +121,29 @@ normative-file gate for any conformance-clarification edits it explicitly author
 - SPECIFICATION.md §§ immutability, FINAL uniqueness, sequence_number, Merkle/CHECKPOINT
 - DESIGN-MEMO-001 (Merkle construction, conformance impact)
 - RFC 6962 (Merkle proofs); RFC 8785 (JCS)
+---
+
+## Addendum — 2026-06-24 (Steward-authorized re-scope)
+
+Recorded as a new commit; the original decisions above are unchanged.
+
+During SD-2 authoring, empirical measurement against the reference validator established
+that the majority of Standard and Full requirements are **behavioral** (runtime APIs,
+retention, CHECKPOINT cadence, Merkle proof generation/verification, metric computation,
+real-time signaling) and are **not statically decidable**. The static suite (Layers 1 + 3)
+therefore certifies record and store conformance only.
+
+Consequences, authorized by the Steward (ORPI-2026-06-24):
+
+1. **Honest reporting.** The runner labels every level verdict with the scope qualifier
+   "(statically-decidable clauses)" and emits a machine-readable `not_covered` list
+   enumerating every behavioral clause. A static PASS is necessary but not sufficient for a
+   full Standard/Full conformance claim.
+
+2. **Layer 2 elevated.** Layer 2 (write-time behavioral conformance) moves from
+   "deferred without date" to the **next normative item after SD-3**. This is a *sequence*
+   commitment, not a public-date commitment; no public signal until the static base is on
+   `main`. The Layer 2 memo proceeds in two steps: (1) a language-neutral adapter contract,
+   then (2) write-time fixtures.
+
+This addendum amends DESIGN-MEMO-003 additively and is never applied via amend/force-push.
