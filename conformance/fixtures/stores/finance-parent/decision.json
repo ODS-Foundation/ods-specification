@@ -1,0 +1,69 @@
+{
+  "_schema_version": "2.0.0",
+  "record_type": "DECISION",
+  "record_id": "dddddddd-0000-4000-a000-0000000000f1",
+  "timestamp_utc": "2026-05-09T14:23:45.123456+00:00",
+  "profile": "ODS-Finance/v1",
+  "identity": {
+    "model_version": "v2.1.0",
+    "policy_hash": "189bff6265300365c5ff0d775393db04714f1476ef063bc99a215c9e46a16971"
+  },
+  "context": {
+    "regime_state": "NORMAL",
+    "regime_confidence": 0.87,
+    "volatility_state": "ELEVATED",
+    "macro_state_vector": [
+      0.12,
+      -0.03,
+      0.55,
+      0.88
+    ]
+  },
+  "action": {
+    "action_type": "BUY",
+    "action_size": 50000.0,
+    "expected_value": 0.08,
+    "risk_posture": 0.62,
+    "capital_at_risk_bps": 145
+  },
+  "cognition": {
+    "confidence": 0.78,
+    "uncertainty_score": 0.22,
+    "decision_latency_ms": 340,
+    "rationale": "Momentum signal above threshold in elevated-volatility regime. Position sized conservatively relative to risk posture. Macro vector consistent with prior NORMAL-to-ELEVATED transitions that resolved favorably within 14 days."
+  },
+  "counterfactuals": [
+    {
+      "alternative_action": "HOLD",
+      "expected_outcome": 0.0
+    },
+    {
+      "alternative_action": "BUY_REDUCED",
+      "expected_outcome": 0.04
+    }
+  ],
+  "governance": {
+    "audit_trail": [
+      {
+        "timestamp_utc": "2026-05-09T14:23:45.123456+00:00",
+        "event": "DECISION_CREATED",
+        "actor": "ALPHA_ENGINE_v2.1",
+        "metadata": {
+          "signal_id": "MOM-2026-05-09-001",
+          "execution_venue": "PRIMARY"
+        }
+      }
+    ],
+    "compliance": {
+      "policy_violations": [],
+      "approvals": [
+        "AUTO_APPROVED_WITHIN_LIMITS"
+      ],
+      "risk_limit_checks": [
+        "POSITION_LIMIT_PASSED",
+        "SECTOR_LIMIT_PASSED",
+        "VAR_LIMIT_PASSED"
+      ]
+    }
+  }
+}

@@ -27,14 +27,18 @@ Addendum 2026-06-24).
 - **SD-1** — runner + Layer 1 Core Basic fixture slice.
 - **SD-2** — Layer 1 Core Standard static clauses: store-level invariants (parent_id
   existence, FINAL uniqueness) and stored-mode `sequence_number` (required/accepted).
-- **SD-3** — Layer 3 profile fixtures (ODS-Finance/v1) incl. OUTCOME profile consistency (C4).
+- **SD-3** — Layer 3 profile fixtures (ODS-Finance/v1): profile schema validity, Basic level
+  (action_type + profile), reserved-namespace prohibition (OQ3), and OUTCOME profile
+  consistency (C4). ODS-Finance Standard/Full are level-policy/behavioral -> not_covered.
 
 ## What it tests
 
 - **Layer 1 — record & store conformance (static fixtures).** Each fixture is a real ODS
   record (or candidate validated against a small store) that the reference validator
   (`validator/validate.py`) MUST accept or MUST reject.
-- **Layer 3 — profile conformance.** Ships in SD-3.
+- **Layer 3 — profile conformance.** ODS-Finance/v1 records validated against the profile
+  schema (second pass); reserved-namespace claims rejected (OQ3); OUTCOME profile must match
+  the parent (C4). Finance Standard/Full level field-presence is behavioral -> not_covered.
 
 ## Fixture modes
 

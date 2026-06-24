@@ -1,6 +1,6 @@
 {
   "suite": "ods-conformance",
-  "suite_version": "0.2.0",
+  "suite_version": "0.3.0",
   "spec_version": "2.1.0",
   "scope": "statically-decidable clauses",
   "fixtures": [
@@ -102,6 +102,56 @@
       "expect": "reject",
       "clause": "CONFORMANCE.md \u00a7Standard (v2.1.0+) \u2014 stored records MUST carry a sequence_number",
       "rationale": "In stored mode, a record missing sequence_number must be rejected."
+    },
+    {
+      "file": "fixtures/profiles/ods-finance/basic/valid/finance-decision.json",
+      "level": "ODS-Finance Basic",
+      "mode": "core",
+      "expect": "accept",
+      "clause": "CONFORMANCE.md \u00a7ODS-Finance/v1 Basic \u2014 action_type present + profile ODS-Finance/v1; validates against profile schema",
+      "rationale": "A valid operational finance DECISION passes core + profile (Pass 2) validation."
+    },
+    {
+      "file": "fixtures/profiles/ods-finance/basic/invalid/bad-action-type.json",
+      "level": "ODS-Finance Basic",
+      "mode": "core",
+      "expect": "reject",
+      "clause": "ods-finance-v1.json \u2014 action.action_type MUST be in the profile enum",
+      "rationale": "An action_type outside the finance enum fails profile (Pass 2) validation."
+    },
+    {
+      "file": "fixtures/profiles/ods-finance/basic/invalid/wrong-typed-field.json",
+      "level": "ODS-Finance Basic",
+      "mode": "core",
+      "expect": "reject",
+      "clause": "ods-finance-v1.json \u2014 profile field types are enforced (regime_confidence is number 0..1)",
+      "rationale": "A wrong-typed profile field fails profile (Pass 2) validation."
+    },
+    {
+      "file": "fixtures/profiles/ods-finance/basic/invalid/reserved-namespace.json",
+      "level": "ODS-Finance Basic",
+      "mode": "core",
+      "expect": "reject",
+      "clause": "CONFORMANCE.md \u00a7Reserved namespaces / OQ3 \u2014 conformance claims against reserved profiles are PROHIBITED",
+      "rationale": "A profile referencing a registry-reserved namespace (e.g. ODS-Healthcare) must be rejected before profile schema validation."
+    },
+    {
+      "file": "fixtures/profiles/ods-finance/consistency/store/valid/outcome-profile-match.json",
+      "level": "ODS-Finance Basic",
+      "mode": "store",
+      "store": "fixtures/stores/finance-parent",
+      "expect": "accept",
+      "clause": "CONFORMANCE.md \u00a7Profile consistency (C4) \u2014 OUTCOME profile matching parent DECISION profile is valid",
+      "rationale": "An OUTCOME whose profile equals the parent's is accepted in store mode."
+    },
+    {
+      "file": "fixtures/profiles/ods-finance/consistency/store/invalid/outcome-profile-mismatch.json",
+      "level": "ODS-Finance Basic",
+      "mode": "store",
+      "store": "fixtures/stores/finance-parent",
+      "expect": "reject",
+      "clause": "CONFORMANCE.md \u00a7Profile consistency (C4) \u2014 OUTCOME profile MUST match parent DECISION profile",
+      "rationale": "An OUTCOME whose profile differs from the parent's must be rejected."
     }
   ],
   "not_covered": [
@@ -196,10 +246,16 @@
       "reason": "Runtime ingest-time behavior."
     },
     {
-      "level": "Profile (all)",
-      "clause": "ODS-Finance/v1 profile conformance and OUTCOME profile consistency (C4)",
-      "category": "Layer 3 (later static sub-delivery)",
-      "reason": "Profile-level static fixtures ship in SD-3."
+      "level": "ODS-Finance Standard",
+      "clause": "regime_state, regime_confidence captured on DECISION; risk_limit_checks present",
+      "category": "behavioral (level policy)",
+      "reason": "The profile schema makes these fields optional; their presence is a conformance-level policy, not schema-enforced, so it cannot be decided statically."
+    },
+    {
+      "level": "ODS-Finance Full",
+      "clause": "risk_posture, capital_at_risk_bps, macro_state_vector captured; DPI computed with risk_alignment",
+      "category": "behavioral (level policy / Layer 2)",
+      "reason": "Optional in the profile schema; level-policy field presence and DPI computation are behavioral, certified by the Layer 2 suite."
     }
   ]
 }
