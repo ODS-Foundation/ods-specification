@@ -5,7 +5,7 @@
 | **Memo ID** | DESIGN-MEMO-004 |
 | **Title** | Layer 2 Adapter Contract for Write-Time Behavioral Conformance |
 | **Author** | ORPI Steward |
-| **Status** | DRAFT |
+| **Status** | FINAL (Steward-approved 2026-06-25) |
 | **Created** | 2026-06-25 |
 | **Updated** | 2026-06-25 |
 | **Addresses** | DESIGN-MEMO-003 Addendum (2026-06-24) — Layer 2 elevation; the 17 behavioral clauses enumerated in `conformance/manifest.json` `not_covered` |
