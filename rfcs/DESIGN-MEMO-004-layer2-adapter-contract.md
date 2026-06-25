@@ -17,6 +17,7 @@
 | Version | Date | Summary |
 |---------|------|---------|
 | 0.1 | 2026-06-25 | Initial DRAFT — adapter transport, operation set, time-clause scope, reference adapter, state isolation. |
+| 0.2 | 2026-06-25 | Resolved the four §7 open questions into the body (Steward-approved 2026-06-25): optional presence-only `metrics` op; `checkpoint` returns current head; closed reject-code taxonomy; step-2 governed under this memo. §7 converted from open questions to a decisions record. |
 
 ---
 
@@ -64,13 +65,13 @@ the contract says so rather than implying coverage. These remain in `not_covered
   structural one. The contract can observe that a signal is emitted; it does not certify
   how fast.
 - CHECKPOINT cadence by **wall-clock** (the "or every 24h" trigger) — testable only behind
-  an optional injectable-clock capability (§5.3); the **count** trigger (every 1000 records)
-  is testable and in scope.
-- Metric **value correctness** for DPI / CFR / Learning Velocity — definitional; the
-  contract MAY check presence/well-formedness at Full (§4, optional `metrics`), not that a
-  computed number is "right".
+  the optional injectable-clock capability (§5.3); the **count** trigger (every 1000
+  records) is testable and in scope.
+- Metric **value correctness** for DPI / CFR / Learning Velocity — definitional. The
+  contract checks presence/well-formedness only, via the optional `metrics` op (§4.2), never
+  that a computed number is "right".
 
-## 3. Transport and invocation (Default 1)
+## 3. Transport and invocation (Decision 1)
 
 The adapter is a single executable exposing **subcommands**, taking a JSON request on
 **stdin** and emitting a single JSON response on **stdout**, with **exit codes mirroring the
@@ -89,10 +90,12 @@ the connectathon model: the suite speaks one wire format; each implementation br
 adapter. All requests and responses are UTF-8 JSON; the response MUST be a single JSON
 object; field ordering is irrelevant (the suite parses structurally).
 
-## 4. Operation set (Default 2)
+## 4. Operation set (Decision 2)
+
+### 4.1 Core operations
 
 Each operation defines a request shape, a response shape, and exit semantics. Shapes below
-are the DRAFT contract sketch; exact JSON Schemas are fixed during review before step 2.
+are the contract sketch; exact JSON Schemas are fixed at step 2 against this memo.
 
 | Op | Request (stdin) | Response (stdout) | Exit |
 |----|-----------------|-------------------|------|
@@ -103,37 +106,68 @@ are the DRAFT contract sketch; exact JSON Schemas are fixed during review before
 | `proof` | `{ "record_id": "…", "checkpoint": "…"? }` | `{ "proof": { "leaf_index": i, "tree_size": N, "audit_path": ["…"], "checkpoint_root": "…" } }` | 0 / 2 |
 | `consistency` | `{ "from": "…", "to": "…" }` | `{ "proof": { "first_size": m, "second_size": n, "nodes": ["…"] } }` | 0 / 2 |
 
+**`checkpoint` semantics (Decision 2).** `checkpoint` returns the **current head
+checkpoint** — auto-emitted by the implementation if its cadence (e.g. the count trigger) has
+been reached, or freshly produced on demand otherwise. This single shape covers both
+auto-emitting and on-demand implementations: the suite reads the head and asserts on its
+structure and `sequence_range`, without prescribing when emission happens internally.
+
 The suite, not the adapter, **verifies** Merkle inclusion and consistency: the adapter
 *produces* a proof, and the suite recomputes the root per RFC 6962 and compares. This keeps
 proof verification in the trusted suite and tests the implementation's proof *generation*.
 
-**Behavioral clauses → operations.** This mapping is how Layer 2 retires `not_covered`
-entries:
+### 4.2 Optional operation — `metrics` (Decision 1, Full-level, presence-only)
+
+| Op | Request (stdin) | Response (stdout) | Exit |
+|----|-----------------|-------------------|------|
+| `metrics` | `{ "record_id": "…" }` | `{ "dpi": <number>, "cfr": <number>, "learning_velocity": <number> }` | 0 / 2 |
+
+`metrics` is **optional**. When an implementation exposes it, the Full-level suite checks the
+fields are **present and well-formed** (correct types/ranges) — it never asserts a value is
+"correct", because correctness depends on the metric definition, which this memo deliberately
+does not pin. Implementations that do not expose `metrics` leave the DPI/CFR/Learning
+Velocity computation clauses in `not_covered`.
+
+### 4.3 Reject codes (Decision 3 — closed taxonomy)
+
+A `submit` rejection (exit 1) MUST carry a `code` from this closed set, so fixtures assert on
+`code` rather than free-text `reason`. The set is extended only by amendment to this memo.
+
+| Code | Meaning |
+|------|---------|
+| `CLIENT_SEQUENCE_FORBIDDEN` | The submitted record included a `sequence_number` (clients MUST NOT). |
+| `PARENT_NOT_FOUND` | An OUTCOME's `parent_id` does not reference an existing record. |
+| `FINAL_NOT_UNIQUE` | A second FINAL OUTCOME was submitted for a parent that already has one. |
+| `APPEND_ONLY_VIOLATION` | A submit reused an existing `record_id` or attempted to mutate a stored record. |
+| `PROFILE_MISMATCH` | An OUTCOME's `profile` does not match its parent DECISION's `profile`. |
+| `RESERVED_PROFILE` | The record's `profile` references a registry-reserved namespace. |
+| `SCHEMA_INVALID` | The record fails core or profile schema validation at write time. |
+
+`reason` remains a free-text human aid and is never asserted on.
+
+### 4.4 Behavioral clauses → operations
+
+This mapping is how Layer 2 retires `not_covered` entries:
 
 - Store-assigned `sequence_number`, monotonic — `submit` (accept) returns a `stored_record`
   carrying it; the suite asserts monotonicity across a sequence of submits.
-- Reject client-submitted `sequence_number` — `submit` a record that includes one → exit 1.
+- Reject client-submitted `sequence_number` — `submit` a record that includes one → exit 1,
+  `CLIENT_SEQUENCE_FORBIDDEN`.
 - Writes OUTCOME records / parent linkage at write — `submit` OUTCOME with a valid/invalid
-  `parent_id` → accept / exit 1.
-- FINAL uniqueness at write — `submit` a second FINAL OUTCOME for a parent → exit 1.
-- Append-only enforcement — `submit` a record reusing an existing `record_id`, or any
-  mutation of a stored record → exit 1.
+  `parent_id` → accept / exit 1 `PARENT_NOT_FOUND`.
+- FINAL uniqueness at write — second FINAL OUTCOME → exit 1 `FINAL_NOT_UNIQUE`.
+- Append-only enforcement — reuse/mutate `record_id` → exit 1 `APPEND_ONLY_VIOLATION`.
 - Canonical read protocol / state — `get` returns the canonical stored form.
-- Per-record SHA-256 via RFC 8785 (JCS) — `stored_record` (or `get`) exposes the record
-  hash; the suite recomputes JCS + SHA-256 and compares.
-- Merkle tree computation (RFC 6962) — `checkpoint` returns `merkle_root` / `tree_size`; the
+- Per-record SHA-256 via RFC 8785 (JCS) — `stored_record`/`get` exposes the record hash; the
+  suite recomputes JCS + SHA-256 and compares.
+- Merkle tree computation (RFC 6962) — `checkpoint` returns `merkle_root`/`tree_size`; the
   suite recomputes from the leaves it submitted.
-- CHECKPOINT cadence (**count** trigger) — after the configured number of submits, a
-  CHECKPOINT is available (auto-emitted or via `checkpoint`); the suite asserts it exists and
-  covers the expected `sequence_range`.
+- CHECKPOINT cadence (**count** trigger) — after the configured number of submits, the head
+  `checkpoint` covers the expected `sequence_range`.
 - Inclusion proof generation — `proof`; suite verifies.
 - Consistency proof generation — `consistency`; suite verifies.
 
-**Optional, deferred to review:** a `metrics` op (`{ "record_id" }` → `{ "dpi": …, "cfr": …,
-"learning_velocity": … }`) for Full-level **presence/well-formedness** checks only. Listed
-as an open question (§7), not a required operation in this DRAFT.
-
-## 5. State isolation and determinism (Default 5)
+## 5. State isolation and determinism (Decision 5)
 
 ### 5.1 Working directory
 The adapter operates entirely within a caller-supplied `--workdir`. `init` establishes a
@@ -156,7 +190,7 @@ injectable clock (`init` accepts `{ "clock": "manual" }` and a `tick` op advance
 Implementations that do not expose it simply leave the wall-clock cadence clause in
 `not_covered`; the count trigger remains covered for everyone.
 
-## 6. Reference adapter (Default 4)
+## 6. Reference adapter (Decision 4 context)
 
 The repository ships a **reference adapter** over the reference store, analogous to
 `validator/validate.py` being the Layer 1 reference. Its role is to make the Layer 2 suite
@@ -166,26 +200,29 @@ a conformance witness, not a production store. Its location and language are an
 implementation detail of step 2 (likely `conformance/adapters/reference/`), to be fixed when
 step 2 is authored.
 
-## 7. Open questions (for Council/Steward review)
+## 7. Resolved decisions (Steward-approved 2026-06-25)
 
-1. **`metrics` op.** Include an optional `metrics` operation for Full-level presence checks,
-   or leave DPI/CFR/Learning Velocity entirely in `not_covered`? Council leans toward
-   *optional, presence-only* — never asserting value correctness.
-2. **Auto-emit vs explicit `checkpoint`.** Should the count-trigger CHECKPOINT be observed by
-   polling `checkpoint`, or must the adapter auto-emit and the suite read it back? Council
-   leans toward: `checkpoint` returns the current head checkpoint (auto-emitted if cadence
-   was reached), covering both styles.
-3. **Error taxonomy.** Fix a small closed set of reject `code` values
-   (`FINAL_NOT_UNIQUE`, `PARENT_NOT_FOUND`, `CLIENT_SEQUENCE_FORBIDDEN`, `APPEND_ONLY_VIOLATION`,
-   …) so fixtures assert on `code`, not on free-text `reason`. Council recommends yes.
-4. **Step-2 governance.** Are write-time fixtures implementation under this memo (the
-   DESIGN-MEMO-003 → SD-1/2/3 pattern), or do they warrant their own memo? Council recommends
-   implementation under this memo unless step 2 surfaces new design decisions.
+The four questions raised in the v0.1 DRAFT were resolved by the Steward and folded into the
+body above. Recorded here so the FINAL memo carries decisions, not open questions:
+
+1. **`metrics` op — optional, presence-only (§4.2).** DPI/CFR/Learning Velocity are checked
+   for presence and well-formedness when exposed, never for value correctness; value
+   correctness would require pinning the metric definitions, which is deliberately deferred.
+2. **`checkpoint` returns the current head (§4.1).** Auto-emitted if cadence was reached,
+   on-demand otherwise — one shape covers both implementation styles without forcing either.
+3. **Closed reject-code taxonomy (§4.3).** Fixtures assert on a fixed `code` set, not on
+   free-text `reason`, so they are robust against wording changes. The set grows only by
+   amendment.
+4. **Step-2 governance under this memo (§8).** Write-time fixtures are implementation under
+   this memo (the DESIGN-MEMO-003 → SD-1/2/3 pattern), unless construction surfaces a new
+   design decision warranting its own amendment or memo.
 
 ## 8. Next step
 
-On FINAL approval of this contract, step 2 proceeds: author `conformance/ADAPTER-CONTRACT.md`
-(the normative contract text), the reference adapter, the Layer 2 runner, and the write-time
-fixtures — as sub-deliveries, pre-merge byte-reviewed by Council, merged under this memo's
-authorization. No public signal attaches to any of it. This memo does not authorize step 2;
-it defines what step 2 must build against.
+On FINAL approval of this contract, step 2 proceeds **as implementation under this memo**:
+author `conformance/ADAPTER-CONTRACT.md` (the normative contract text), the reference
+adapter, the Layer 2 runner, and the write-time fixtures — as sub-deliveries, pre-merge
+byte-reviewed by Council, merged under this memo's authorization. Should construction surface
+a genuinely new design decision, it is recorded as an amendment to this memo (new commit,
+never amend/force-push) or, if large enough, its own memo. No public signal attaches to any
+of it. This memo does not itself authorize step 2; it defines what step 2 must build against.
