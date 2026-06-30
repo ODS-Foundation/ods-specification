@@ -5,8 +5,8 @@ ORPI / Open Decision Standard — runnable reference demo (no dependencies).
 What this shows in ~60 seconds:
   An AI agent makes a high-risk decision (a credit-scoring rejection).
   We record it as a verifiable ODS DECISION record — who decided, under what
-  authority, with what rationale and outcome — hash-chained and anchored in a
-  Merkle checkpoint. We generate an inclusion proof a third party can verify
+  authority, with what rationale and outcome — bound to its position by a
+  store-assigned sequence number and anchored in a Merkle checkpoint. We generate an inclusion proof a third party can verify
   WITHOUT trusting us. Then we tamper with a stored record and watch the proof
   break — which is exactly what turns a log into evidence.
 
@@ -16,12 +16,15 @@ can be silently altered has no evidentiary value. ODS is the format that makes
 the record provable, not just present.
 
 Run:  python orpi_demo.py
-Stdlib only (hashlib, json, datetime). Python 3.8+.
+Stdlib only (hashlib, json, datetime). Python 3.9+.
 
 Note: this is a teaching reference. Canonicalization here is a compact
 sorted-key JSON (close to RFC 8785 / JCS); the full standard pins RFC 8785 and
-RFC 6962 exactly. The cryptographic shape — hash-chain + Merkle inclusion — is
-the real thing.
+RFC 6962 exactly. The Merkle construction is faithful: each leaf is
+SHA-256(0x00 || canonical(stored_record)) over the full record INCLUDING its
+store-assigned sequence_number, as DESIGN-MEMO-001 specifies. ODS has no
+blockchain-style prev_hash; a record's position is bound by sequence_number
+living inside the hashed leaf.
 """
 
 import hashlib
@@ -41,13 +44,6 @@ def canonical(obj) -> bytes:
 
 def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
-
-
-def record_hash(record: dict) -> str:
-    """Hash of a record's canonical form, excluding integrity fields."""
-    core = {k: v for k, v in record.items()
-            if k not in ("record_hash", "prev_hash", "sequence_number")}
-    return sha256_hex(canonical(core))
 
 
 # RFC 6962-style Merkle tree (domain-separated leaf/node hashing)
@@ -119,35 +115,39 @@ def _now() -> str:
 
 
 class Ledger:
-    """Append-only, hash-chained store. Mutation is detectable by design."""
+    """Append-only store. Mutation changes a record's Merkle leaf and breaks its proof."""
 
     def __init__(self):
         self.records: list[dict] = []
 
     def submit(self, record: dict) -> dict:
-        prev = self.records[-1]["record_hash"] if self.records else "GENESIS"
+        # The store assigns sequence_number at write time: begins at 1,
+        # monotonic, gapless (DESIGN-MEMO-001 §5.3). No prev_hash/record_hash
+        # exist in ODS; position is bound by sequence_number inside the leaf.
         record = dict(record)
-        record["sequence_number"] = len(self.records)
-        record["prev_hash"] = prev
-        record["record_hash"] = record_hash(record)
+        record["sequence_number"] = len(self.records) + 1
         self.records.append(record)
         return record
 
     def merkle_checkpoint(self) -> dict:
-        leaves = [bytes.fromhex(r["record_hash"]) for r in self.records]
+        # Leaf = SHA-256(0x00 || JCS(stored_record)) over the FULL stored record,
+        # sequence_number included (DESIGN-MEMO-001 §3).
+        leaves = [canonical(r) for r in self.records]
         root = merkle_root(leaves).hex()
+        last_seq = self.records[-1]["sequence_number"] if self.records else 0
         return {
             "_schema_version": "2.1.0",
             "record_type": "CHECKPOINT",
             "timestamp_utc": _now(),
             "tree_size": len(self.records),
             "merkle_root": root,
-            "sequence_range": [0, len(self.records) - 1],
+            "sequence_range": [1, last_seq],
         }
 
-    def proof_for(self, seq: int, checkpoint: dict):
-        leaves = [bytes.fromhex(r["record_hash"]) for r in self.records]
-        return inclusion_proof(leaves, seq)
+    def proof_for(self, index: int, checkpoint: dict):
+        # index is the 0-based leaf position (record with sequence_number index+1).
+        leaves = [canonical(r) for r in self.records]
+        return inclusion_proof(leaves, index)
 
 
 # ----------------------------------------------------------------------------
@@ -224,7 +224,8 @@ def demo():
     print(f"    authority : policy_hash {d['identity']['policy_hash'][:16]}… (which rules governed)")
     print(f"    rationale : {d['cognition']['rationale']}")
     print(f"    action    : {d['action']['decision']} (score {d['action']['score']} < {d['action']['threshold']})")
-    print(f"    seq #{d['sequence_number']}  record_hash {d['record_hash'][:16]}…  prev {d['prev_hash'][:8]}…")
+    leaf_hex = sha256_hex(b"\x00" + canonical(d))
+    print(f"    seq #{d['sequence_number']}  merkle_leaf {leaf_hex[:16]}… (SHA-256 over the canonical stored record)")
 
     # 2) The realized outcome, linked to the decision (append-only).
     o = led.submit(outcome(
@@ -238,7 +239,7 @@ def demo():
     ))
     print("\n[2] OUTCOME recorded (linked to the decision, append-only)")
     print(f"    parent_id : {o['parent_id']}")
-    print(f"    seq #{o['sequence_number']}  prev_hash {o['prev_hash'][:16]}… (chained to the decision above)")
+    print(f"    seq #{o['sequence_number']}  (append-only; its sequence_number fixes its position in the Merkle log)")
 
     # 3) Anchor everything in a Merkle checkpoint.
     cp = led.merkle_checkpoint()
@@ -248,7 +249,7 @@ def demo():
 
     # 4) Inclusion proof — a third party verifies WITHOUT trusting us.
     proof = led.proof_for(0, cp)
-    leaf = bytes.fromhex(led.records[0]["record_hash"])
+    leaf = canonical(led.records[0])
     ok = verify_inclusion(leaf, 0, cp["tree_size"], proof, cp["merkle_root"])
     print("\n[4] INCLUSION PROOF for the decision record")
     print(f"    audit_path  : {len(proof)} node(s)")
@@ -259,14 +260,13 @@ def demo():
     print("[5] Now someone quietly edits the stored decision: REJECT -> APPROVE")
     led.records[0]["action"]["decision"] = "APPROVE"
     led.records[0]["action"]["score"] = 0.77
-    recomputed = record_hash(led.records[0])
-    stored = led.records[0]["record_hash"]
-    print(f"    stored record_hash    : {stored[:32]}…")
-    print(f"    recomputed from bytes : {recomputed[:32]}…")
-    print(f"    integrity check       : {'PASS' if recomputed == stored else 'FAIL — tampering detected'}")
-
-    leaf_t = bytes.fromhex(recomputed)
-    ok_t = verify_inclusion(leaf_t, 0, cp["tree_size"], proof, cp["merkle_root"])
+    # There is no separate record_hash field to forge: the canonical stored
+    # record IS the leaf pre-image. Recompute the leaf over the edited bytes
+    # and re-run the SAME inclusion proof against the regulator-held root.
+    tampered_leaf = canonical(led.records[0])
+    ok_t = verify_inclusion(tampered_leaf, 0, cp["tree_size"], proof, cp["merkle_root"])
+    print(f"    leaf recomputed over the edited stored record")
+    print(f"    integrity check       : {'PASS' if ok_t else 'FAIL — edit changed the leaf; proof no longer matches the root'}")
     print(f"    inclusion proof now   : {'verifies' if ok_t else 'FAILS against the regulator-held root'}")
     line("=")
     print("The edit is mathematically visible. The record is evidence, not a story")
